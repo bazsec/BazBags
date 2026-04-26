@@ -290,9 +290,9 @@ local function BuildFrame()
     -- visually but built ourselves so we don't fight Blizzard for
     -- ownership of the singleton BackpackTokenFrame instance.
     frame.tokens = CreateFrame("Frame", nil, frame)
-    frame.tokens:SetHeight(17)
-    -- Final position is set in Refresh() — depends on whether we have
-    -- any watched currencies to display.
+    -- Final size + position is set in Refresh() — height matches the
+    -- money frame so the two rows feel like a pair, width sizes to
+    -- the visible entries.
 
     frame.tokens.border = CreateFrame("Frame", nil, frame.tokens, "ContainerFrameCurrencyBorderTemplate")
     frame.tokens.border.leftEdge   = "common-currencybox-left"
@@ -351,8 +351,9 @@ end
 ---------------------------------------------------------------------------
 
 local TOKEN_ENTRY_W   = 50
-local TOKEN_ENTRY_H   = 12
-local TOKEN_ICON_SIZE = 12
+local TOKEN_ENTRY_H   = 14   -- match MONEY_ICON_WIDTH_SMALL so the row visually equals the money row
+local TOKEN_ICON_SIZE = 14   -- match the gold/silver/copper icon size
+local TOKEN_GAP       = 2    -- horizontal gap between adjacent entries
 local TOKEN_RIGHT_PAD = 13   -- match the border's right-cap inset (same 13 as money frame)
 
 local function GetOrCreateTokenEntry(parent, idx)
@@ -428,11 +429,11 @@ local function UpdateTokens()
         if i == 1 then
             btn:SetPoint("RIGHT", tokens, "RIGHT", -TOKEN_RIGHT_PAD, 0)
         else
-            btn:SetPoint("RIGHT", tokens.entries[i - 1], "LEFT", -2, 0)
+            btn:SetPoint("RIGHT", tokens.entries[i - 1], "LEFT", -TOKEN_GAP, 0)
         end
     end
 
-    return visible > 0
+    return visible
 end
 
 ---------------------------------------------------------------------------
@@ -558,13 +559,22 @@ function Bag:Refresh()
 
     -- Tracked currencies — only update + show if the user enabled
     -- the row AND has at least one currency marked Show on Backpack.
-    local hasTokens = false
-    if showTokens then hasTokens = UpdateTokens() end
+    local tokenCount = 0
+    if showTokens then tokenCount = UpdateTokens() or 0 end
+    local hasTokens = tokenCount > 0
+
     if hasTokens then
+        -- Dynamic width: 13 px right cap + entries (each TOKEN_ENTRY_W
+        -- with TOKEN_GAP between) + 13 px left cap. Symmetric with
+        -- the money frame's gold border.
+        local contentW = tokenCount * TOKEN_ENTRY_W
+                       + math.max(0, tokenCount - 1) * TOKEN_GAP
+        local totalW   = contentW + TOKEN_RIGHT_PAD * 2
+
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()
-        frame.tokens:SetPoint("BOTTOMLEFT",  frame, "BOTTOMLEFT",  12, 12)
         frame.tokens:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+        frame.tokens:SetWidth(totalW)
     else
         frame.tokens:Hide()
     end
@@ -631,6 +641,23 @@ function Bag:Refresh()
                 end)
             end
         end
+
+        -- Match the tokens row height to the money row height so the
+        -- two pill-shaped boxes feel like a coordinated pair. The
+        -- money frame's height is set by MoneyFrame_Update earlier
+        -- in this branch, so by here it's stable for this refresh.
+        if hasTokens and frame.money:IsShown() then
+            local h = frame.money:GetHeight()
+            if h and h > 0 then
+                frame.tokens:SetHeight(h)
+            end
+        end
+    end
+
+    -- Fallback height if money is hidden but tokens are shown. Use a
+    -- sensible default so the row still has presence.
+    if hasTokens and not frame.money:IsShown() then
+        frame.tokens:SetHeight(20)
     end
 end
 

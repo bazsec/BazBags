@@ -2,10 +2,11 @@
 ## Title: BazBags
 ## Notes: Lightweight unified bag panel with collapsible sections per bag type
 ## Author: Baz4k
-## Version: 001
+## Version: 002
 ## X-License: GPL v2
 ## Category: Baz Suite
 ## X-Category: Bags & Inventory
+## X-Curse-Project-ID: 1525946
 ## Dependencies: BazCore
 ## IconTexture: 5160585
 ## SavedVariables: BazBagsDB

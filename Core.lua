@@ -19,6 +19,8 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         maxRows       = 15,    -- soft cap on the panel's content area in rows of slots; content past
                                 -- this scrolls. Set to ~30 to effectively disable the cap and let
                                 -- the panel grow with content.
+        bgAlpha       = 1.0,   -- 0..1 opacity of the panel's dark background — drop below 1 to see
+                                -- the world through the bag
 
         -- Grouping mode:
         --   "bags"       (default) — Blizzard-style sections per bag/reagent
@@ -181,6 +183,20 @@ local function GetSettingsPage()
                 get   = function() return addon:GetSetting("maxRows") or 15 end,
                 set   = function(_, val)
                     addon:SetSetting("maxRows", val)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            bgAlpha = {
+                order = 5,
+                type  = "range",
+                name  = "Background Opacity",
+                desc  = "Opacity of the panel's dark background, in percent. 100 is solid; lower lets the world show through. Items, text and chrome stay fully opaque regardless.",
+                min   = 0,
+                max   = 100,
+                step  = 5,
+                get   = function() return math.floor(((addon:GetSetting("bgAlpha") or 1.0) * 100) + 0.5) end,
+                set   = function(_, val)
+                    addon:SetSetting("bgAlpha", val / 100)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },

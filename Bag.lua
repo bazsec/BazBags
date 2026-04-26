@@ -891,6 +891,14 @@ function Bag:Refresh()
     -- edges so they reflow automatically.
     frame:SetWidth(PanelWidthFor(cols))
 
+    -- Apply the bg-opacity setting to PortraitFrameFlatTemplate's Bg
+    -- frame (its FlatPanelBackgroundTemplate child). SetAlpha here
+    -- only dims the panel's dark background — items, chrome, and
+    -- text live in higher draw layers and stay fully opaque.
+    if frame.Bg then
+        frame.Bg:SetAlpha(addon:GetSetting("bgAlpha") or 1.0)
+    end
+
     -- Hide every existing slot button up front. Anything we still want
     -- visible gets re-shown + repositioned in the layout loop. This is
     -- the simplest way to handle (a) Hide Empty on/off, (b) bag size
@@ -1238,6 +1246,7 @@ events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency VALUE changes
+events:RegisterEvent("INVENTORY_SEARCH_UPDATE")    -- search box text → re-evaluate isFiltered
 events:SetScript("OnEvent", ScheduleRefresh)
 
 -- "Show on Backpack" toggles fire an EventRegistry callback rather

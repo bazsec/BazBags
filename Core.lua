@@ -14,8 +14,8 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
     profiles      = true,
     defaults = {
         -- Layout
-        cols          = 8,      -- columns wide; 4..20 via the slider
-        hideEmpty     = false,  -- skip empty slots when rendering (compact view)
+        cols          = 12,    -- columns wide; 4..20 via the slider — 12 fits a typical bag in 2-3 rows
+        hideEmpty     = true,  -- skip empty slots by default — most first-time users prefer the compact view
 
         -- Footer
         showMoney       = true,   -- gold/silver/copper row at the bottom

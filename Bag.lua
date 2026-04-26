@@ -34,7 +34,7 @@ local SLOT_SPACING_X    = 5       -- Blizzard's ITEM_SPACING_X
 local SLOT_SPACING_Y    = 4
 local SECTION_HEADER_H  = 20
 local TOP_PAD           = 60      -- below title bar — leaves room for search/sort row
-local BOTTOM_PAD        = 36      -- above footer
+local BOTTOM_PAD        = 64      -- above footer (room for money + optional token row)
 local SIDE_PAD          = 12
 
 -- Live setting readers — re-evaluated on every Refresh so the panel
@@ -285,16 +285,47 @@ local function BuildFrame()
     frame.search:SetPoint("TOPLEFT", 62, -37)               -- Blizzard's exact anchor
     frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
 
-    -- Money frame — Blizzard's exact gold/silver/copper readout.
-    -- Inset symmetrically from the BOTTOMRIGHT corner of the panel
-    -- so the visual gap to the right edge matches the gap to the
-    -- bottom edge (both 12 px).
-    frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
-    frame.money:SetPoint("BOTTOMRIGHT", -12, 12)
+    -- Token (tracked-currency) row — full-width green-bordered box
+    -- below the money row. Mirrors Blizzard's BackpackTokenFrame
+    -- visually but built ourselves so we don't fight Blizzard for
+    -- ownership of the singleton BackpackTokenFrame instance.
+    frame.tokens = CreateFrame("Frame", nil, frame)
+    frame.tokens:SetHeight(17)
+    -- Final position is set in Refresh() — depends on whether we have
+    -- any watched currencies to display.
 
-    -- Footer status (free / total slots)
-    frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    frame.status:SetPoint("BOTTOMLEFT", 12, 14)
+    frame.tokens.border = CreateFrame("Frame", nil, frame.tokens, "ContainerFrameCurrencyBorderTemplate")
+    frame.tokens.border.leftEdge   = "common-currencybox-left"
+    frame.tokens.border.rightEdge  = "common-currencybox-right"
+    frame.tokens.border.centerEdge = "_common-currencybox-center"
+    frame.tokens.border:SetPoint("LEFT")
+    frame.tokens.border:SetPoint("RIGHT")
+    -- Invoke the template's OnLoad manually so the three border
+    -- pieces pick up our green-currency atlases (template only
+    -- reads .leftEdge/.rightEdge/.centerEdge from KeyValues at OnLoad).
+    if ContainerFrameCurrencyBorderMixin and ContainerFrameCurrencyBorderMixin.OnLoad then
+        ContainerFrameCurrencyBorderMixin.OnLoad(frame.tokens.border)
+    end
+
+    -- Click anywhere on the row → open Blizzard's full TokenFrame
+    -- (where the user manages "Show on Backpack" per currency).
+    frame.tokens:EnableMouse(true)
+    frame.tokens:SetScript("OnMouseDown", function()
+        if CharacterFrame and CharacterFrame.ToggleTokenFrame then
+            CharacterFrame:ToggleTokenFrame()
+        end
+    end)
+
+    -- Pool of per-currency entries (count text + icon). Sized to
+    -- match BackpackTokenTemplate (50 x 12) so a row of them at the
+    -- panel's bottom looks identical to Blizzard's.
+    frame.tokens.entries = {}
+
+    -- Money frame — Blizzard's exact gold/silver/copper readout.
+    -- Position is set in Refresh() so we can stack it above the
+    -- token row when currencies are visible, or alone at the bottom
+    -- when there are none.
+    frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
 
     -- Build sections
     for _, def in ipairs(SECTIONS) do
@@ -302,6 +333,106 @@ local function BuildFrame()
     end
 
     return frame
+end
+
+---------------------------------------------------------------------------
+-- Tracked-currency row update
+--
+-- Reads C_CurrencyInfo.GetBackpackCurrencyInfo iteratively until it
+-- returns nil. Per-currency entries are pooled — we lazily create
+-- new ones if the user starts watching more, and hide the trailing
+-- ones if they unwatch some.
+--
+-- Each entry mirrors Blizzard's BackpackTokenTemplate visually:
+-- 50 px wide button, 12 px icon on the right, count text right-
+-- aligned to the icon's left. The whole row is itself anchored
+-- right-to-left from the green border's right cap, so multiple
+-- currencies stack like coins.
+---------------------------------------------------------------------------
+
+local TOKEN_ENTRY_W   = 50
+local TOKEN_ENTRY_H   = 12
+local TOKEN_ICON_SIZE = 12
+local TOKEN_RIGHT_PAD = 13   -- match the border's right-cap inset (same 13 as money frame)
+
+local function GetOrCreateTokenEntry(parent, idx)
+    if parent.entries[idx] then return parent.entries[idx] end
+
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(TOKEN_ENTRY_W, TOKEN_ENTRY_H)
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    btn.icon = btn:CreateTexture(nil, "ARTWORK")
+    btn.icon:SetSize(TOKEN_ICON_SIZE, TOKEN_ICON_SIZE)
+    btn.icon:SetPoint("RIGHT", 4, 1)
+
+    btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btn.count:SetJustifyH("RIGHT")
+    btn.count:SetPoint("TOPLEFT")
+    btn.count:SetPoint("RIGHT", btn.icon, "LEFT")
+
+    btn:SetScript("OnEnter", function(self)
+        if not self._currencyID then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if GameTooltip.SetCurrencyByID then
+            GameTooltip:SetCurrencyByID(self._currencyID)
+        elseif GameTooltip.SetCurrencyToken then
+            GameTooltip:SetCurrencyToken(self._index)
+        end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnClick", function()
+        -- Same behaviour as BackpackTokenMixin: open the full token UI
+        -- where users can manage Show on Backpack per currency.
+        if CharacterFrame and CharacterFrame.ToggleTokenFrame then
+            CharacterFrame:ToggleTokenFrame()
+        end
+    end)
+
+    parent.entries[idx] = btn
+    return btn
+end
+
+local function UpdateTokens()
+    if not frame or not frame.tokens then return false end
+
+    local tokens = frame.tokens
+    local visible = 0
+
+    for i = 1, 30 do  -- ample upper bound; loop breaks at first nil
+        local info = C_CurrencyInfo and C_CurrencyInfo.GetBackpackCurrencyInfo
+            and C_CurrencyInfo.GetBackpackCurrencyInfo(i) or nil
+        if not info then break end
+
+        visible = visible + 1
+        local btn = GetOrCreateTokenEntry(tokens, visible)
+        btn._index      = i
+        btn._currencyID = info.currencyTypesID
+        btn.icon:SetTexture(info.iconFileID)
+        btn.count:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(info.quantity or 0) or tostring(info.quantity or 0))
+        btn:Show()
+    end
+
+    -- Hide trailing entries that aren't needed anymore
+    for i = visible + 1, #tokens.entries do
+        tokens.entries[i]:Hide()
+    end
+
+    -- Layout entries right-to-left so they stack like coins.
+    -- entries[1] is the rightmost token (matches Blizzard's
+    -- TopRightToBottomLeft grid direction in BackpackTokenFrame).
+    for i = 1, visible do
+        local btn = tokens.entries[i]
+        btn:ClearAllPoints()
+        if i == 1 then
+            btn:SetPoint("RIGHT", tokens, "RIGHT", -TOKEN_RIGHT_PAD, 0)
+        else
+            btn:SetPoint("RIGHT", tokens.entries[i - 1], "LEFT", -2, 0)
+        end
+    end
+
+    return visible > 0
 end
 
 ---------------------------------------------------------------------------
@@ -403,18 +534,21 @@ function Bag:Refresh()
         end
     end
 
-    -- Resize panel to fit (height adjusts to total section content)
-    frame:SetHeight(math.abs(y) + BOTTOM_PAD)
-
-    -- Footer status: free / total across the whole bag
-    local totalFree, totalSlots = 0, 0
-    for _, def in ipairs(SECTIONS) do
-        for _, bagID in ipairs(def.bagIDs) do
-            totalFree  = totalFree  + (C_Container.GetContainerNumFreeSlots(bagID) or 0)
-            totalSlots = totalSlots + (C_Container.GetContainerNumSlots(bagID) or 0)
-        end
+    -- Compute bottom padding based on which footer rows the user
+    -- has enabled. Both shown → room for two stacked rows. One
+    -- shown → one row. Neither → just panel border padding.
+    local showMoney  = addon:GetSetting("showMoney")  ~= false
+    local showTokens = addon:GetSetting("showTokens") ~= false
+    local visibleRows = (showMoney and 1 or 0) + (showTokens and 1 or 0)
+    local bottomPad
+    if visibleRows == 2 then
+        bottomPad = BOTTOM_PAD
+    elseif visibleRows == 1 then
+        bottomPad = 36
+    else
+        bottomPad = 12
     end
-    frame.status:SetText(string.format("%d / %d slots", totalSlots - totalFree, totalSlots))
+    frame:SetHeight(math.abs(y) + bottomPad)
 
     -- Title — toggle between BazBags and Blizzard's default.
     if frame.SetTitle then
@@ -422,61 +556,80 @@ function Bag:Refresh()
         frame:SetTitle(useDefault and (COMBINED_BAG_TITLE or "Combined Backpack") or "BazBags")
     end
 
+    -- Tracked currencies — only update + show if the user enabled
+    -- the row AND has at least one currency marked Show on Backpack.
+    local hasTokens = false
+    if showTokens then hasTokens = UpdateTokens() end
+    if hasTokens then
+        frame.tokens:Show()
+        frame.tokens:ClearAllPoints()
+        frame.tokens:SetPoint("BOTTOMLEFT",  frame, "BOTTOMLEFT",  12, 12)
+        frame.tokens:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+    else
+        frame.tokens:Hide()
+    end
+
     -- Money frame: refresh values, then optionally collapse to gold-only
     -- by hiding silver + copper and re-anchoring gold to the right edge
     -- of the money frame so it doesn't sit alone in the middle of empty
     -- space where silver/copper used to be.
     if frame.money then
-        if MoneyFrame_Update then
-            MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
-        end
+        if not showMoney then
+            frame.money:Hide()
+        else
+            frame.money:Show()
 
-        local goldOnly = addon:GetSetting("goldOnly") and true or false
-        if frame.money.SilverButton then frame.money.SilverButton:SetShown(not goldOnly) end
-        if frame.money.CopperButton then frame.money.CopperButton:SetShown(not goldOnly) end
-        if frame.money.GoldButton then
-            frame.money.GoldButton:ClearAllPoints()
-            if goldOnly then
-                -- Match Blizzard's pattern for the rightmost coin button:
-                -- copperButton anchors at RIGHT,RIGHT,-13,0 in MoneyFrame_Update
-                -- (line 380). The 13 px right inset is the room the border's
-                -- decorative right cap takes — without it, the icon pokes out
-                -- past the visible inside edge of the gold border.
-                frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", -13, 0)
-            elseif frame.money.SilverButton then
-                -- Restore the template's default anchor relationship
-                frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)
+            -- Position: above the token row when one is shown, or at
+            -- the bottom-right corner of the panel when there are no
+            -- tracked currencies. The 3 px gap between rows matches
+            -- Blizzard's combined-bag layout (ContainerFrame.lua:2492).
+            frame.money:ClearAllPoints()
+            if hasTokens then
+                frame.money:SetPoint("BOTTOMRIGHT", frame.tokens, "TOPRIGHT", 0, 3)
+            else
+                frame.money:SetPoint("BOTTOMRIGHT", -12, 12)
             end
-        end
 
-        -- Tighten the frame width to fit visible content. MoneyFrame_Update
-        -- adds an iconWidth padding budget to its computed frame width
-        -- that no element actually fills, so the gold border ends up
-        -- noticeably wider than the leftmost coin. We re-measure the
-        -- leftmost-visible button's frame-relative left edge and shrink
-        -- the money frame to match. Deferred one frame so layout has
-        -- resolved (the buttons we just hid/showed need their positions
-        -- to settle before we read GetLeft/GetRight).
-        local mf = frame.money
-        local goldB, silverB, copperB = mf.GoldButton, mf.SilverButton, mf.CopperButton
-        local leftButton
-        if goldB and goldB:IsShown() then leftButton = goldB
-        elseif silverB and silverB:IsShown() then leftButton = silverB
-        elseif copperB and copperB:IsShown() then leftButton = copperB
-        end
-        if leftButton then
-            C_Timer.After(0, function()
-                local L = leftButton:GetLeft()
-                local R = mf:GetRight()
-                if L and R and R > L then
-                    -- +13 matches the right-side inset (Blizzard's
-                    -- copper anchor and our goldOnly gold anchor both
-                    -- use -13 from frame RIGHT for the border cap).
-                    -- Padding the LEFT by the same 13 keeps the inside
-                    -- of the gold border visually symmetric.
-                    mf:SetWidth(R - L + 13)
+            if MoneyFrame_Update then
+                MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
+            end
+
+            local goldOnly = addon:GetSetting("goldOnly") and true or false
+            if frame.money.SilverButton then frame.money.SilverButton:SetShown(not goldOnly) end
+            if frame.money.CopperButton then frame.money.CopperButton:SetShown(not goldOnly) end
+            if frame.money.GoldButton then
+                frame.money.GoldButton:ClearAllPoints()
+                if goldOnly then
+                    -- Match Blizzard's pattern for the rightmost coin
+                    -- (-13 from frame RIGHT) so the gold icon sits inside
+                    -- the border's decorative right cap.
+                    frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", -13, 0)
+                elseif frame.money.SilverButton then
+                    -- Restore the template's default anchor relationship
+                    frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)
                 end
-            end)
+            end
+
+            -- Tighten the frame width to fit visible content. See the
+            -- detailed comment block elsewhere — MoneyFrame_Update's
+            -- own width formula adds an iconWidth pad that nothing
+            -- fills, so the gold border ends up wider than the coins.
+            local mf = frame.money
+            local goldB, silverB, copperB = mf.GoldButton, mf.SilverButton, mf.CopperButton
+            local leftButton
+            if goldB and goldB:IsShown() then leftButton = goldB
+            elseif silverB and silverB:IsShown() then leftButton = silverB
+            elseif copperB and copperB:IsShown() then leftButton = copperB
+            end
+            if leftButton then
+                C_Timer.After(0, function()
+                    local L = leftButton:GetLeft()
+                    local R = mf:GetRight()
+                    if L and R and R > L then
+                        mf:SetWidth(R - L + 13)
+                    end
+                end)
+            end
         end
     end
 end
@@ -527,4 +680,57 @@ events:RegisterEvent("BAG_UPDATE_COOLDOWN")
 events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
+events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency value or watch-state changes
+events:RegisterEvent("BACKPACK_CURRENCY_UPDATE")   -- pre-Midnight equivalent (defensive)
 events:SetScript("OnEvent", ScheduleRefresh)
+
+---------------------------------------------------------------------------
+-- Override Blizzard's bag toggles so the B key (and any addon that
+-- calls these functions) opens BazBags instead of Blizzard's combined
+-- bag. We replace ToggleAllBags / OpenAllBags / OpenBackpack — every
+-- way Blizzard's UI normally triggers the bag opens lands on us.
+--
+-- Hooks happen at file-scope so they're in place before PLAYER_LOGIN.
+-- Inside the replacement we still call the original function for
+-- close paths, so closing all panels (escape from a UI panel) clears
+-- both BazBags and any Blizzard bag state.
+---------------------------------------------------------------------------
+
+local function HookBlizzardBagToggles()
+    if Bag._blizzHooked then return end
+    Bag._blizzHooked = true
+
+    local origToggleAllBags = ToggleAllBags
+    ToggleAllBags = function()
+        -- Mirror Blizzard's "if any bag panel is open, close all"
+        -- behaviour but with our panel as the open/close target.
+        if frame and frame:IsShown() then
+            Bag:Hide()
+        else
+            Bag:Show()
+        end
+    end
+
+    local origOpenAllBags = OpenAllBags
+    OpenAllBags = function()
+        Bag:Show()
+    end
+
+    local origOpenBackpack = OpenBackpack
+    OpenBackpack = function()
+        Bag:Show()
+    end
+
+    -- Closing the bag should close ours. Both names exist in Blizzard.
+    if CloseAllBags then
+        local origClose = CloseAllBags
+        CloseAllBags = function()
+            Bag:Hide()
+            -- Defensive: if Blizzard's combined bag was somehow shown
+            -- (e.g. another addon opened it directly), close it too.
+            if origClose then pcall(origClose) end
+        end
+    end
+end
+
+BazCore:QueueForLogin(HookBlizzardBagToggles)

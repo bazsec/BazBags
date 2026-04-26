@@ -16,8 +16,12 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         -- Layout
         cols          = 8,      -- columns wide; 4..20 via the slider
         hideEmpty     = false,  -- skip empty slots when rendering (compact view)
-        goldOnly      = false,  -- hide silver + copper in the footer money display
-        useDefaultTitle = false, -- show "Combined Backpack" instead of "BazBags"
+
+        -- Footer
+        showMoney       = true,   -- gold/silver/copper row at the bottom
+        showTokens      = true,   -- tracked-currency (green) row below the money
+        goldOnly        = false,  -- hide silver + copper in the money display
+        useDefaultTitle = false,  -- show "Combined Backpack" instead of "BazBags"
 
         -- Section collapse state. Per-section, persisted across
         -- sessions so the user's preference sticks.
@@ -162,16 +166,39 @@ local function GetSettingsPage()
                 type  = "header",
                 name  = "Footer",
             },
-            goldOnly = {
+            showMoney = {
                 order = 11,
                 type  = "toggle",
+                name  = "Show Money",
+                desc  = "Show your gold / silver / copper at the bottom of the panel.",
+                get   = function() return addon:GetSetting("showMoney") ~= false end,
+                set   = function(_, val)
+                    addon:SetSetting("showMoney", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            showTokens = {
+                order = 12,
+                type  = "toggle",
+                name  = "Show Currency Tracker",
+                desc  = "Show the tracked-currency row (green box) below the money. The list of currencies is whatever you've marked as \"Show on Backpack\" in Blizzard's Currency UI.",
+                get   = function() return addon:GetSetting("showTokens") ~= false end,
+                set   = function(_, val)
+                    addon:SetSetting("showTokens", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            goldOnly = {
+                order = 13,
+                type  = "toggle",
                 name  = "Gold Only",
-                desc  = "Show only your gold count in the footer; hide silver and copper. Useful at high gold totals where the silver/copper digits add visual noise.",
+                desc  = "Show only your gold count in the money row; hide silver and copper. Useful at high gold totals where the silver/copper digits add visual noise.",
                 get   = function() return addon:GetSetting("goldOnly") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("goldOnly", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
+                disabled = function() return addon:GetSetting("showMoney") == false end,
             },
         },
     }

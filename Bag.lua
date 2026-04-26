@@ -320,20 +320,21 @@ local function BuildFrame()
     frame.tokens.rows    = {}   -- array of row frames (built lazily)
     frame.tokens.entries = {}   -- flat pool of per-currency entries
 
-    -- Solid layer behind the panel's translucent stock background.
-    -- PortraitFrameFlatTemplate's Bg uses PANEL_BACKGROUND_COLOR
-    -- which has built-in alpha (~0.7) — so frame.Bg:SetAlpha(1)
-    -- still reads as see-through. This extra texture sits *under*
-    -- frame.Bg at sub-level -1 so the dark overlay still tints the
-    -- panel, but at 100% opacity the result is fully solid. Both
-    -- layers scale together with the bgAlpha setting (Refresh
-    -- applies SetAlpha to both).
+    -- Solid backing layer behind the panel's translucent stock
+    -- background. PortraitFrameFlatTemplate's Bg uses
+    -- PANEL_BACKGROUND_COLOR which has built-in alpha (~0.7) — so
+    -- frame.Bg:SetAlpha(1) still reads as see-through. This extra
+    -- texture sits *under* frame.Bg at sub-level -1 so the dark
+    -- overlay still tints the panel, but at 100% opacity the result
+    -- is fully solid. Both layers scale together with the bgAlpha
+    -- setting (Refresh applies SetAlpha to both).
     --
-    -- Colour is a warm dark grey (~RGB 38, 33, 28) rather than pure
-    -- black so the panel reads as greyish rather than a stark void.
-    -- Tuned to sit comfortably with the gold border.
+    -- Uses Blizzard's "spec-background" atlas — the same textured
+    -- mid-grey backdrop the BazCore standalone options window uses,
+    -- so the bag panel matches the settings page rather than reading
+    -- as a stark dark void.
     frame.solidBg = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
-    frame.solidBg:SetColorTexture(0.15, 0.13, 0.11, 1)
+    frame.solidBg:SetAtlas("spec-background")
     frame.solidBg:SetPoint("TOPLEFT",     2, -20)
     frame.solidBg:SetPoint("BOTTOMRIGHT", -2, 3)
 

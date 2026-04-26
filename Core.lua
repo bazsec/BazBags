@@ -16,9 +16,9 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         -- Layout
         cols          = 12,    -- columns wide; 4..20 via the slider — 12 fits a typical bag in 2-3 rows
         hideEmpty     = true,  -- skip empty slots by default — most first-time users prefer the compact view
-        maxHeight     = 600,   -- soft cap on the panel's content area (px); content over this scrolls
-                                -- — set to a large value (e.g. 1500+) to effectively disable the cap
-                                -- and let the panel grow with content
+        maxRows       = 15,    -- soft cap on the panel's content area in rows of slots; content past
+                                -- this scrolls. Set to ~30 to effectively disable the cap and let
+                                -- the panel grow with content.
 
         -- Grouping mode:
         --   "bags"       (default) — Blizzard-style sections per bag/reagent
@@ -170,17 +170,17 @@ local function GetSettingsPage()
                 end,
                 disabled = function() return addon:GetSetting("bagMode") == "categories" end,
             },
-            maxHeight = {
+            maxRows = {
                 order = 4,
                 type  = "range",
-                name  = "Max Height",
-                desc  = "Soft cap on the bag panel's content area in pixels. The panel grows naturally up to this height, then shows a scrollbar for anything past it. Crank to the max if you'd rather the panel always sized to fit all your items.",
-                min   = 200,
-                max   = 1500,
-                step  = 25,
-                get   = function() return addon:GetSetting("maxHeight") or 600 end,
+                name  = "Max Rows",
+                desc  = "Soft cap on the bag panel's content area, measured in rows of item slots. The panel grows naturally up to this many rows, then scrolls for anything past it. Crank to the max if you'd rather the panel always sized to fit all your items.",
+                min   = 3,
+                max   = 30,
+                step  = 1,
+                get   = function() return addon:GetSetting("maxRows") or 15 end,
                 set   = function(_, val)
-                    addon:SetSetting("maxHeight", val)
+                    addon:SetSetting("maxRows", val)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },

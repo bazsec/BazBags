@@ -1042,11 +1042,12 @@ function Bag:Refresh()
     local showTokens = addon:GetSetting("showTokens") ~= false
     local bottomPad  = showTokens and 44 or 12
 
-    -- Cap the scroll area's height at the user's maxHeight setting.
-    -- Anything taller scrolls; anything shorter just shrinks the panel
-    -- to fit. Default 600 ≈ 12-15 typical rows.
+    -- Cap the scroll area at the user's maxRows setting (one row =
+    -- SLOT_SIZE + SLOT_SPACING_Y ≈ 41 px). Anything taller scrolls;
+    -- anything shorter shrinks the panel to fit content.
     local contentH = math.abs(y)
-    local maxH     = addon:GetSetting("maxHeight") or 600
+    local maxRows  = addon:GetSetting("maxRows") or 15
+    local maxH     = maxRows * (SLOT_SIZE + SLOT_SPACING_Y)
     local scrollH  = math.min(contentH, maxH)
 
     if frame.scrollChild then

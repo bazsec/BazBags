@@ -295,41 +295,17 @@ local function BuildFrame()
         end,
     })
 
-    -- Auto-sort button — Blizzard atlases at Blizzard's exact anchor
-    -- (-9, -34) and size (28x26). Matches the combined-bag layout from
-    -- ContainerFrame.lua:978 so it lines up vertically with the search
-    -- box at TOPLEFT 62, -37 (centers within ~1 px of each other).
-    frame.sort = CreateFrame("Button", nil, frame)
-    frame.sort:SetSize(28, 26)
-    frame.sort:SetNormalAtlas("bags-button-autosort-up")
-    frame.sort:SetPushedAtlas("bags-button-autosort-down")
-    frame.sort:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-    frame.sort:SetPoint("TOPRIGHT", -9, -34)
-    frame.sort:SetScript("OnClick", function()
-        if SOUNDKIT and SOUNDKIT.UI_BAG_SORTING_01 then
-            PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
-        end
-        if C_Container and C_Container.SortBags then
-            C_Container.SortBags()
-        end
-    end)
-    frame.sort:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self)
-        GameTooltip_SetTitle(GameTooltip, BAG_CLEANUP_BAGS or "Clean Up Bags", HIGHLIGHT_FONT_COLOR)
-        if BAG_CLEANUP_BAGS_DESCRIPTION then
-            GameTooltip_AddNormalLine(GameTooltip, BAG_CLEANUP_BAGS_DESCRIPTION)
-        end
-        GameTooltip:Show()
-    end)
-    frame.sort:SetScript("OnLeave", GameTooltip_Hide)
-
     -- Search box — Blizzard's BagSearchBoxTemplate handles the icon,
     -- placeholder text, focus/blur visuals, and live filtering of
-    -- ContainerFrameItemButton instances via SetMatchesSearch.
+    -- ContainerFrameItemButton instances via SetMatchesSearch. The
+    -- right edge anchors to the money frame's LEFT so the search box
+    -- automatically shrinks when the player's gold total grows wider.
+    -- (We dropped Blizzard's auto-sort 'broom' button — /bbg sort
+    -- still runs C_Container.SortBags on demand, and the corner real
+    -- estate is now used for the money display.)
     frame.search = CreateFrame("EditBox", nil, frame, "BagSearchBoxTemplate")
     frame.search:SetHeight(18)
-    frame.search:SetPoint("TOPLEFT", 62, -37)               -- Blizzard's exact anchor
-    frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
+    frame.search:SetPoint("TOPLEFT", 62, -37)
 
     -- Token (tracked-currency) row — full-width green-bordered box
     -- below the money row. Mirrors Blizzard's BackpackTokenFrame
@@ -345,10 +321,15 @@ local function BuildFrame()
     frame.tokens.entries = {}   -- flat pool of per-currency entries
 
     -- Money frame — Blizzard's exact gold/silver/copper readout.
-    -- Position is set in Refresh() so we can stack it above the
-    -- token row when currencies are visible, or alone at the bottom
-    -- when there are none.
+    -- Anchored where Blizzard's auto-sort button used to live so the
+    -- player's gold sits next to the title bar instead of taking a
+    -- whole row at the bottom of the panel. The search box anchors
+    -- to its LEFT, so longer gold totals automatically shrink the
+    -- search field rather than overflowing the chrome.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
+    frame.money:ClearAllPoints()
+    frame.money:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -34)
+    frame.search:SetPoint("RIGHT", frame.money, "LEFT", -8, 0)
 
     -- Scroll container for the bag content (sections, dividers, slots).
     -- All content anchors to scrollChild so when the player has more
@@ -1024,13 +1005,13 @@ function Bag:Refresh()
         end
     end
 
-    -- Compute bottom padding. Money is one row (~24 px). Tokens may
-    -- now be multiple rows so we have to look at the live frame.
-    -- Set the panel height once we've laid the footer below.
+    -- Compute bottom padding. The money frame lives in the top-right
+    -- chrome now, so it doesn't contribute to the bottom anymore —
+    -- only tokens (the green tracked-currency strip) does. When tokens
+    -- aren't visible we just need the standard outer margin.
     local showMoney  = addon:GetSetting("showMoney")  ~= false
     local showTokens = addon:GetSetting("showTokens") ~= false
-    local provisional = (showMoney and 1 or 0) + (showTokens and 1 or 0)
-    local bottomPad   = (provisional == 0) and 12 or 36
+    local bottomPad  = showTokens and 30 or 12
 
     -- Cap the scroll area's height at the user's maxHeight setting.
     -- Anything taller scrolls; anything shorter just shrinks the panel
@@ -1096,28 +1077,16 @@ function Bag:Refresh()
         frame.tokens:Hide()
     end
 
-    -- Money frame: refresh values, then optionally collapse to gold-only
-    -- by hiding silver + copper and re-anchoring gold to the right edge
-    -- of the money frame so it doesn't sit alone in the middle of empty
-    -- space where silver/copper used to be.
+    -- Money frame lives in the top-right chrome (anchored once in
+    -- BuildFrame). Per refresh we just update its values and the
+    -- gold-only state — its position never changes. Width auto-fits
+    -- visible content via the deferred SetWidth at the end so the
+    -- search bar (anchored to money's LEFT) shrinks/grows in lock-step.
     if frame.money then
         if not showMoney then
             frame.money:Hide()
         else
             frame.money:Show()
-
-            -- Position: above the token row when one is shown, or at
-            -- the bottom-right corner of the panel when there are no
-            -- tracked currencies. The 3 px gap between rows matches
-            -- Blizzard's combined-bag layout (ContainerFrame.lua:2492).
-            frame.money:ClearAllPoints()
-            if hasTokens then
-                -- 6 px gap between the green and gold rows so they
-                -- read as a coordinated pair rather than touching.
-                frame.money:SetPoint("BOTTOMRIGHT", frame.tokens, "TOPRIGHT", 0, 6)
-            else
-                frame.money:SetPoint("BOTTOMRIGHT", -12, 12)
-            end
 
             if MoneyFrame_Update then
                 -- Triggers our hooksecurefunc, which calls ApplyMoneyState

@@ -366,7 +366,17 @@ local function UpdateBagSlotButton(btn)
 end
 
 local function BuildBagSlotButton(parent, invSlot, isReagent)
-    local btn = CreateFrame("ItemButton", nil, parent, "ItemButtonTemplate")
+    -- BagSlotButtonTemplate is the template Blizzard uses for the
+    -- character pane's bag slots. It provides the ItemButton chrome
+    -- (icon, normal/pushed/highlight, quality border) plus default
+    -- drag/drop scripts that operate on self:GetID(). The bare
+    -- "ItemButtonTemplate" referenced in earlier addon docs isn't
+    -- exposed as a runtime CreateFrame target in retail Midnight —
+    -- using BagSlotButtonTemplate is both correct and idiomatic.
+    -- Our SetScript overrides below replace the template's defaults
+    -- so we can do per-slot tooltip text (e.g. distinguishing the
+    -- reagent bag) and route through our self.invSlot field.
+    local btn = CreateFrame("ItemButton", nil, parent, "BagSlotButtonTemplate")
     btn:SetSize(36, 36)
     btn:SetID(invSlot)
     btn.invSlot = invSlot
@@ -474,6 +484,53 @@ function Bag:ToggleBagChangePopup()
         p:Show()
     end
 end
+
+---------------------------------------------------------------------------
+-- Money frame state
+--
+-- ContainerMoneyFrameTemplate registers PLAYER_MONEY itself and calls
+-- MoneyFrame_UpdateMoney whenever the player's gold changes. That
+-- helper re-shows SilverButton + CopperButton based on the money
+-- value, which silently clobbers any hide we did during the previous
+-- Refresh. From the user's perspective the Gold Only toggle "doesn't
+-- save" — the setting is persisted, but Blizzard's auto-update keeps
+-- bringing silver/copper back the next time their gold changes.
+--
+-- ApplyMoneyState centralises the visibility + anchor logic so we can
+-- call it both during Refresh and from a hooksecurefunc on
+-- MoneyFrame_UpdateMoney. The hook fires after Blizzard's logic, so
+-- our state always wins regardless of who triggered the update.
+---------------------------------------------------------------------------
+
+local function ApplyMoneyState(mf)
+    if not mf then return end
+    local goldOnly = addon:GetSetting("goldOnly") and true or false
+    if mf.SilverButton then mf.SilverButton:SetShown(not goldOnly) end
+    if mf.CopperButton then mf.CopperButton:SetShown(not goldOnly) end
+    if mf.GoldButton then
+        mf.GoldButton:ClearAllPoints()
+        if goldOnly then
+            -- Match Blizzard's pattern for the rightmost coin
+            -- (-13 from frame RIGHT) so the gold icon sits inside
+            -- the border's decorative right cap.
+            mf.GoldButton:SetPoint("RIGHT", mf, "RIGHT", -13, 0)
+        elseif mf.SilverButton then
+            -- Restore the template's default anchor relationship.
+            mf.GoldButton:SetPoint("RIGHT", mf.SilverButton, "LEFT", -4, 0)
+        end
+    end
+end
+
+-- Re-apply our gold-only state every time Blizzard's MoneyFrame logic
+-- runs for our money frame (e.g. PLAYER_MONEY events fired by the
+-- template's own OnEvent handler). Installed once at file load; the
+-- closure null-checks `frame` so it's safe to register before the
+-- frame is built.
+hooksecurefunc("MoneyFrame_UpdateMoney", function(moneyFrame)
+    if frame and moneyFrame == frame.money then
+        ApplyMoneyState(moneyFrame)
+    end
+end)
 
 ---------------------------------------------------------------------------
 -- Tracked-currency row update
@@ -857,23 +914,12 @@ function Bag:Refresh()
             end
 
             if MoneyFrame_Update then
+                -- Triggers our hooksecurefunc, which calls ApplyMoneyState
+                -- after Blizzard's logic — so silver/copper visibility
+                -- and the gold anchor always reflect the saved setting.
                 MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
-            end
-
-            local goldOnly = addon:GetSetting("goldOnly") and true or false
-            if frame.money.SilverButton then frame.money.SilverButton:SetShown(not goldOnly) end
-            if frame.money.CopperButton then frame.money.CopperButton:SetShown(not goldOnly) end
-            if frame.money.GoldButton then
-                frame.money.GoldButton:ClearAllPoints()
-                if goldOnly then
-                    -- Match Blizzard's pattern for the rightmost coin
-                    -- (-13 from frame RIGHT) so the gold icon sits inside
-                    -- the border's decorative right cap.
-                    frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", -13, 0)
-                elseif frame.money.SilverButton then
-                    -- Restore the template's default anchor relationship
-                    frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)
-                end
+            else
+                ApplyMoneyState(frame.money)
             end
 
             -- Tighten the frame width to fit visible content. See the

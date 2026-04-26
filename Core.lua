@@ -23,7 +23,7 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         position = nil,
     },
 
-    slash = { "/bb", "/bazbags" },
+    slash = { "/bbg", "/bazbags" },
     commands = {
         toggle = {
             desc = "Toggle the BazBags panel",
@@ -80,7 +80,7 @@ local function GetLandingPage()
             "intends). Sort + free-slot indicator. Minimap entry " ..
             "and slash-command toggle.",
         guide = {
-            { "/bb",         "Toggle the panel" },
+            { "/bbg",        "Toggle the panel" },
             { "Click a section header", "Fold or expand that bag type" },
             { "Drag the title bar",     "Move the panel" },
             { "Sort button",            "Calls Blizzard's bag sort" },

@@ -16,7 +16,7 @@ A lightweight unified bag panel for World of Warcraft. All bags + the reagent ba
 *   **Sort button** — calls Blizzard's own `C_Container.SortBags`, no custom heuristics
 *   **Free / total slot indicator** at the panel footer
 *   **Draggable** — position remembered per profile
-*   **ESC closes**, `/bb` toggles, minimap entry available
+*   **ESC closes**, `/bbg` toggles, minimap entry available (slash is `/bbg` because `/bb` is BazBars)
 
 ***
 
@@ -24,9 +24,9 @@ A lightweight unified bag panel for World of Warcraft. All bags + the reagent ba
 
 | Command | Action |
 | ------- | ------ |
-| `/bb` | Toggle the panel |
-| `/bb sort` | Trigger Blizzard's bag sort |
-| `/bazbags` | Alias for `/bb` |
+| `/bbg` | Toggle the panel |
+| `/bbg sort` | Trigger Blizzard's bag sort |
+| `/bazbags` | Alias for `/bbg` |
 
 ***
 

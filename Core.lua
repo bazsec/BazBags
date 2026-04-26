@@ -14,9 +14,10 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
     profiles      = true,
     defaults = {
         -- Layout
-        cols      = 8,        -- columns wide; 4..20 via the slider
-        hideEmpty = false,    -- skip empty slots when rendering (compact view)
-        goldOnly  = false,    -- hide silver + copper in the footer money display
+        cols          = 8,      -- columns wide; 4..20 via the slider
+        hideEmpty     = false,  -- skip empty slots when rendering (compact view)
+        goldOnly      = false,  -- hide silver + copper in the footer money display
+        useDefaultTitle = false, -- show "Combined Backpack" instead of "BazBags"
 
         -- Section collapse state. Per-section, persisted across
         -- sessions so the user's preference sticks.
@@ -135,6 +136,23 @@ local function GetSettingsPage()
                 get   = function() return addon:GetSetting("hideEmpty") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("hideEmpty", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+
+            titleHeader = {
+                order = 8,
+                type  = "header",
+                name  = "Title",
+            },
+            useDefaultTitle = {
+                order = 9,
+                type  = "toggle",
+                name  = "Use Default Title",
+                desc  = "Show \"Combined Backpack\" (Blizzard's default title) instead of \"BazBags\" in the panel's title bar.",
+                get   = function() return addon:GetSetting("useDefaultTitle") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("useDefaultTitle", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },

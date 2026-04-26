@@ -417,6 +417,12 @@ function Bag:Refresh()
     end
     frame.status:SetText(string.format("%d / %d slots", totalSlots - totalFree, totalSlots))
 
+    -- Title — toggle between BazBags and Blizzard's default.
+    if frame.SetTitle then
+        local useDefault = addon:GetSetting("useDefaultTitle") and true or false
+        frame:SetTitle(useDefault and (COMBINED_BAG_TITLE or "Combined Backpack") or "BazBags")
+    end
+
     -- Money frame: refresh values, then optionally collapse to gold-only
     -- by hiding silver + copper and re-anchoring gold to the right edge
     -- of the money frame so it doesn't sit alone in the middle of empty
@@ -437,6 +443,31 @@ function Bag:Refresh()
                 -- Restore the template's default anchor relationship
                 frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)
             end
+        end
+
+        -- Tighten the frame width to fit visible content. MoneyFrame_Update
+        -- adds an iconWidth padding budget to its computed frame width
+        -- that no element actually fills, so the gold border ends up
+        -- noticeably wider than the leftmost coin. We re-measure the
+        -- leftmost-visible button's frame-relative left edge and shrink
+        -- the money frame to match. Deferred one frame so layout has
+        -- resolved (the buttons we just hid/showed need their positions
+        -- to settle before we read GetLeft/GetRight).
+        local mf = frame.money
+        local goldB, silverB, copperB = mf.GoldButton, mf.SilverButton, mf.CopperButton
+        local leftButton
+        if goldB and goldB:IsShown() then leftButton = goldB
+        elseif silverB and silverB:IsShown() then leftButton = silverB
+        elseif copperB and copperB:IsShown() then leftButton = copperB
+        end
+        if leftButton then
+            C_Timer.After(0, function()
+                local L = leftButton:GetLeft()
+                local R = mf:GetRight()
+                if L and R and R > L then
+                    mf:SetWidth(R - L + 8)  -- + small symmetric padding
+                end
+            end)
         end
     end
 end

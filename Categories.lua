@@ -1,10 +1,14 @@
 ---------------------------------------------------------------------------
 -- BazBags — Categories module
 --
--- Every piece of code that decides "what category does this item belong
--- to" or "what's the canonical ordering of categories" lives here.
--- Bag.lua calls into this module to populate its render lists; the
--- layout modules in Layouts.lua use the same data to draw.
+-- Owns the category data model + classification logic. Categories are
+-- persisted in the `categories` saved variable as { [key] = { name,
+-- order, isDefault } }; on first load FACTORY_DEFAULTS is folded in
+-- so out-of-the-box users get six built-in groupings. Default
+-- categories are renameable / reorderable / deletable like custom
+-- ones, but the auto-classifier in Classify() is tied to their
+-- *key* (not label) — so renaming "Equipment" → "Gear" doesn't
+-- break the Weapon/Armor → equipment routing.
 ---------------------------------------------------------------------------
 
 local ADDON_NAME = "BazBags"
@@ -15,22 +19,22 @@ addon.Categories = addon.Categories or {}
 local Categories = addon.Categories
 
 ---------------------------------------------------------------------------
--- Built-in category list. Order is spaced by 10 so user-created custom
--- categories can slot anywhere via their own `order` field.
+-- Factory defaults — the categories any first-time user starts with.
+-- The Reset Defaults button in the Settings page restores from this
+-- table. Order is spaced by 10 so user-added categories can slot in
+-- between (Reset preserves their `order` if Soft mode).
 ---------------------------------------------------------------------------
 
-Categories.BUILTIN = {
-    { key = "equipment",   title = "Equipment",   order = 10 },
-    { key = "consumables", title = "Consumables", order = 20 },
-    { key = "tradegoods",  title = "Trade Goods", order = 30 },
-    { key = "questitems",  title = "Quest Items", order = 40 },
-    { key = "junk",        title = "Junk",        order = 50 },
-    { key = "other",       title = "Other",       order = 60 },
+Categories.FACTORY_DEFAULTS = {
+    { key = "equipment",   name = "Equipment",   order = 10 },
+    { key = "consumables", name = "Consumables", order = 20 },
+    { key = "tradegoods",  name = "Trade Goods", order = 30 },
+    { key = "questitems",  name = "Quest Items", order = 40 },
+    { key = "junk",        name = "Junk",        order = 50 },
+    { key = "other",       name = "Other",       order = 60 },
 }
 
--- Set of bags we scan when bagMode == "categories". Same union as the
--- SECTIONS list in Bag.lua, lifted out so the collector can iterate
--- once without re-listing the bag indices.
+-- Set of bags we scan when bagMode == "categories".
 Categories.ALL_BAG_IDS = {
     Enum.BagIndex.Backpack,
     Enum.BagIndex.Bag_1,
@@ -41,66 +45,45 @@ Categories.ALL_BAG_IDS = {
 }
 
 ---------------------------------------------------------------------------
--- ClassifyItem
+-- EnsureDefaults
 --
--- Maps a single item to a category key. The lookup chain is:
---   1. User's itemCategories override (v2 will surface a UI to pin
---      items; the storage already exists so we honour it today).
---   2. Quality 0 → junk (vendor trash) regardless of class.
---   3. Item class buckets — Weapon/Armor → equipment, Consumable →
---      consumables, Tradegoods/Recipe/Gem/Enhancement → tradegoods,
---      Questitem → questitems.
---   4. Everything else → other (catch-all so no item slips through).
+-- Called once at addon load. If the persisted `categories` map is
+-- empty (first run) or missing any default keys (user upgraded from
+-- a build that didn't track them), backfill from FACTORY_DEFAULTS.
+-- Never overwrites user-edited names or orders — only fills holes.
 ---------------------------------------------------------------------------
 
-function Categories.Classify(itemID, quality, classID)
-    -- Custom override (v2 will let users pin items)
-    local custom = addon:GetSetting("itemCategories")
-    if custom and itemID and custom[itemID] then
-        return custom[itemID]
+function Categories.EnsureDefaults()
+    local cats = addon:GetSetting("categories") or {}
+    for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
+        if not cats[def.key] then
+            cats[def.key] = {
+                name      = def.name,
+                order     = def.order,
+                isDefault = true,
+            }
+        end
     end
-
-    if quality == 0 then return "junk" end
-
-    if classID == Enum.ItemClass.Weapon
-       or classID == Enum.ItemClass.Armor then
-        return "equipment"
-    end
-    if classID == Enum.ItemClass.Consumable then
-        return "consumables"
-    end
-    if classID == Enum.ItemClass.Tradegoods
-       or classID == Enum.ItemClass.Recipe
-       or classID == Enum.ItemClass.Gem
-       or classID == Enum.ItemClass.ItemEnhancement then
-        return "tradegoods"
-    end
-    if classID == Enum.ItemClass.Questitem then
-        return "questitems"
-    end
-    return "other"
+    addon:SetSetting("categories", cats)
 end
 
 ---------------------------------------------------------------------------
--- GetOrdered
+-- GetAll
 --
--- Returns the full list of category defs (built-in + user custom)
--- sorted by `order`. Each entry is { key, title, order }. Empty
--- categories are NOT filtered here — that's the caller's job, since
--- some layouts may want to render an empty placeholder.
+-- Returns the persisted category list as an array sorted by `order`,
+-- with stable tie-break on `key`. Each entry is the saved record plus
+-- the `key` field copied in for convenience.
 ---------------------------------------------------------------------------
 
-function Categories.GetOrdered()
+function Categories.GetAll()
+    local cats = addon:GetSetting("categories") or {}
     local list = {}
-    for _, cat in ipairs(Categories.BUILTIN) do
-        list[#list + 1] = { key = cat.key, title = cat.title, order = cat.order }
-    end
-    local custom = addon:GetSetting("customCategories") or {}
-    for key, info in pairs(custom) do
+    for key, info in pairs(cats) do
         list[#list + 1] = {
-            key   = key,
-            title = info.name or key,
-            order = info.order or 100,
+            key       = key,
+            name      = info.name or key,
+            order     = info.order or 100,
+            isDefault = info.isDefault or false,
         }
     end
     table.sort(list, function(a, b)
@@ -110,13 +93,204 @@ function Categories.GetOrdered()
     return list
 end
 
+function Categories.Get(key)
+    local cats = addon:GetSetting("categories") or {}
+    return cats[key]
+end
+
+---------------------------------------------------------------------------
+-- CRUD operations
+---------------------------------------------------------------------------
+
+function Categories.Rename(key, newName)
+    if not key or not newName or newName == "" then return end
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[key] then return end
+    cats[key].name = newName
+    addon:SetSetting("categories", cats)
+end
+
+function Categories.Reorder(key, newOrder)
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[key] then return end
+    cats[key].order = newOrder
+    addon:SetSetting("categories", cats)
+end
+
+-- Generates a unique key (custom_<n>) and inserts a new entry. New
+-- categories slot at the end of the list (max-order + 10) so they
+-- don't accidentally jump above defaults.
+function Categories.Create(name)
+    name = name and name ~= "" and name or "New Category"
+    local cats = addon:GetSetting("categories") or {}
+
+    local maxOrder = 0
+    local n = 0
+    for _, info in pairs(cats) do
+        if (info.order or 0) > maxOrder then maxOrder = info.order end
+        n = n + 1
+    end
+
+    local key
+    repeat
+        n = n + 1
+        key = "custom_" .. n
+    until not cats[key]
+
+    cats[key] = {
+        name  = name,
+        order = maxOrder + 10,
+    }
+    addon:SetSetting("categories", cats)
+    return key
+end
+
+-- Removes a category outright. Items pinned to it via itemCategories
+-- are unpinned (drop back to auto-classify) so they still appear in
+-- the bag — just under whatever default category their class implies.
+function Categories.Delete(key)
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[key] then return end
+    cats[key] = nil
+    addon:SetSetting("categories", cats)
+
+    local pins = addon:GetSetting("itemCategories") or {}
+    local changed = false
+    for itemID, catKey in pairs(pins) do
+        if catKey == key then
+            pins[itemID] = nil
+            changed = true
+        end
+    end
+    if changed then addon:SetSetting("itemCategories", pins) end
+end
+
+-- ResetDefaults
+--   wipeCustoms = false → restore default labels + order, keep customs + pins
+--   wipeCustoms = true  → also delete all user-created categories +
+--                          itemCategories, leaving only factory state
+function Categories.ResetDefaults(wipeCustoms)
+    local cats = addon:GetSetting("categories") or {}
+    if wipeCustoms then
+        cats = {}
+        addon:SetSetting("itemCategories", {})
+    end
+    for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
+        cats[def.key] = {
+            name      = def.name,
+            order     = def.order,
+            isDefault = true,
+        }
+    end
+    addon:SetSetting("categories", cats)
+end
+
+---------------------------------------------------------------------------
+-- Item pinning
+---------------------------------------------------------------------------
+
+function Categories.AddItem(itemID, categoryKey)
+    if not itemID or not categoryKey then return end
+    local pins = addon:GetSetting("itemCategories") or {}
+    pins[itemID] = categoryKey
+    addon:SetSetting("itemCategories", pins)
+end
+
+function Categories.RemoveItem(itemID)
+    local pins = addon:GetSetting("itemCategories") or {}
+    pins[itemID] = nil
+    addon:SetSetting("itemCategories", pins)
+end
+
+function Categories.GetPinnedItems(categoryKey)
+    local out = {}
+    local pins = addon:GetSetting("itemCategories") or {}
+    for itemID, key in pairs(pins) do
+        if key == categoryKey then
+            out[#out + 1] = itemID
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+---------------------------------------------------------------------------
+-- Classify
+--
+-- Maps a single item to a category key. Lookup chain:
+--   1. itemCategories[itemID]    — explicit pin wins
+--   2. quality == 0              → junk
+--   3. ItemClass-based rules     → equipment / consumables / tradegoods / questitems
+--   4. catch-all                 → other
+--
+-- The default keys (equipment, consumables, etc.) keep working even if
+-- the user renames or reorders them — the classifier only cares about
+-- the *key*, not the displayed label. If the user has deleted a
+-- default category entirely, items that would have landed there fall
+-- through to "other" (assuming "other" still exists; otherwise the
+-- first remaining category by order).
+---------------------------------------------------------------------------
+
+local function FallbackKey(preferred)
+    local cats = addon:GetSetting("categories") or {}
+    if cats[preferred] then return preferred end
+    -- Pick the lowest-ordered surviving category as a final fallback.
+    local list = Categories.GetAll()
+    return list[1] and list[1].key or preferred
+end
+
+function Categories.Classify(itemID, quality, classID)
+    local pins = addon:GetSetting("itemCategories")
+    if pins and itemID and pins[itemID] then
+        local catKey = pins[itemID]
+        local cats = addon:GetSetting("categories") or {}
+        if cats[catKey] then return catKey end
+        -- Pin points at a category that no longer exists; drop to auto.
+    end
+
+    if quality == 0 then return FallbackKey("junk") end
+
+    if classID == Enum.ItemClass.Weapon
+       or classID == Enum.ItemClass.Armor then
+        return FallbackKey("equipment")
+    end
+    if classID == Enum.ItemClass.Consumable then
+        return FallbackKey("consumables")
+    end
+    if classID == Enum.ItemClass.Tradegoods
+       or classID == Enum.ItemClass.Recipe
+       or classID == Enum.ItemClass.Gem
+       or classID == Enum.ItemClass.ItemEnhancement then
+        return FallbackKey("tradegoods")
+    end
+    if classID == Enum.ItemClass.Questitem then
+        return FallbackKey("questitems")
+    end
+    return FallbackKey("other")
+end
+
+---------------------------------------------------------------------------
+-- Backwards-compatible alias for callers that still ask for GetOrdered.
+-- New code should call GetAll directly (returns the same shape — list
+-- of { key, name, order, isDefault }).
+---------------------------------------------------------------------------
+
+function Categories.GetOrdered()
+    local list = Categories.GetAll()
+    -- Layouts.Render expects { key, title, order } — copy `name` to
+    -- `title` for backwards compat.
+    for _, entry in ipairs(list) do
+        entry.title = entry.name
+    end
+    return list
+end
+
 ---------------------------------------------------------------------------
 -- GetPairsByCategory
 --
--- Walks every bag we own, classifies each occupied slot, and returns
--- a { [categoryKey] = { {bagID, slotID}, ... } } table. Empty slots
--- are always skipped — they have no category to live in, so the
--- "Hide Empty Slots" setting is implied in category mode.
+-- Walks every bag, classifies each occupied slot, returns a
+-- { [categoryKey] = { {bagID, slotID}, ... } } table. Empty slots are
+-- always skipped — they have no category to live in.
 ---------------------------------------------------------------------------
 
 function Categories.GetPairsByCategory()
@@ -129,9 +303,6 @@ function Categories.GetPairsByCategory()
                 local link    = info.hyperlink
                 local quality = info.quality
                 local classID = info.classID
-                -- GetContainerItemInfo doesn't always populate quality/
-                -- classID immediately; fall back to GetItemInfo when the
-                -- item-info cache is warm.
                 if (not classID or not quality) and link and GetItemInfo then
                     local _, _, q, _, _, _, _, _, _, _, _, c = GetItemInfo(link)
                     quality = quality or q
@@ -148,4 +319,13 @@ function Categories.GetPairsByCategory()
         end
     end
     return byCategory
+end
+
+---------------------------------------------------------------------------
+-- Init: backfill defaults at addon load. SafeForLogin so addon.db is
+-- ready by the time we read/write settings.
+---------------------------------------------------------------------------
+
+if BazCore.QueueForLogin then
+    BazCore:QueueForLogin(function() Categories.EnsureDefaults() end)
 end

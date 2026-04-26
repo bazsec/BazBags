@@ -350,35 +350,38 @@ end
 -- currencies stack like coins.
 ---------------------------------------------------------------------------
 
-local TOKEN_ENTRY_W    = 50    -- match BackpackTokenTemplate width
-local TOKEN_ENTRY_H    = 12    -- match BackpackTokenTemplate height
-local TOKEN_ICON_SIZE  = 10    -- a touch smaller than Blizzard's 12 so icons sit comfortably inside the 17-tall green border with no clipping
-local TOKEN_ICON_Y     = 0     -- y=0 keeps icon perfectly centered (Blizzard uses y=1, which can clip on smaller borders)
-local TOKEN_GAP        = 0     -- BackpackTokenFrameMixin:GetTokenLayout uses x-spacing=0
-local TOKEN_RIGHT_PAD  = 17    -- BackpackTokenFrameMixin:GetInitialTokenAnchor uses RIGHT,-17,-1
-local TOKEN_LEFT_PAD   = 17    -- mirror right pad so the green box looks symmetric
-local TOKEN_TEXT_H     = 10    -- BackpackTokenTemplate.Count Size y="10" — keeps the glyphs vertically centered with the icon
+local TOKEN_ENTRY_H      = 12    -- match BackpackTokenTemplate height
+local TOKEN_ICON_SIZE    = 10    -- a touch smaller than Blizzard's 12 so icons sit comfortably inside the 17-tall green border with no clipping
+local TOKEN_ICON_Y       = 0     -- y=0 keeps icon perfectly centered (Blizzard uses y=1, which can clip on smaller borders)
+local TOKEN_TEXT_ICON_GAP = 3    -- horizontal spacing between count text and its own icon
+local TOKEN_GAP          = 10    -- horizontal spacing BETWEEN currency entries; tuned so short and long counts look evenly spaced
+local TOKEN_RIGHT_PAD    = 14    -- inset from green border's right cap to first icon
+local TOKEN_LEFT_PAD     = 14    -- mirror right pad so the green box looks symmetric
+local TOKEN_TEXT_H       = 10    -- BackpackTokenTemplate.Count Size y="10" — keeps the glyphs vertically centered with the icon
 
 local function GetOrCreateTokenEntry(parent, idx)
     if parent.entries[idx] then return parent.entries[idx] end
 
     local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(TOKEN_ENTRY_W, TOKEN_ENTRY_H)
+    btn:SetHeight(TOKEN_ENTRY_H)
+    -- Width is set per-render in UpdateTokens — depends on the
+    -- count text length so entries don't carry dead space.
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
     btn.icon:SetSize(TOKEN_ICON_SIZE, TOKEN_ICON_SIZE)
     btn.icon:SetPoint("RIGHT", 0, TOKEN_ICON_Y)
 
-    -- FontString height fixed to TOKEN_TEXT_H so its glyph baseline
-    -- sits vertically aligned with the icon's center. Anchor RIGHT
-    -- to icon.LEFT (centered y) instead of TOPLEFT — Blizzard's
-    -- TOPLEFT anchor only happens to align because their button
-    -- height equals their text height; ours doesn't.
+    -- Count text height fixed so its glyph baseline aligns with the
+    -- icon center. Anchor RIGHT to icon.LEFT (centered y) and LEFT to
+    -- the button's LEFT — text fills the button width with right-
+    -- alignment, so the dynamic button width effectively sizes the
+    -- text region.
     btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     btn.count:SetJustifyH("RIGHT")
     btn.count:SetHeight(TOKEN_TEXT_H)
-    btn.count:SetPoint("RIGHT", btn.icon, "LEFT", -3, 0)
+    btn.count:SetPoint("LEFT")
+    btn.count:SetPoint("RIGHT", btn.icon, "LEFT", -TOKEN_TEXT_ICON_GAP, 0)
 
     btn:SetScript("OnEnter", function(self)
         if not self._currencyID then return end
@@ -403,8 +406,11 @@ local function GetOrCreateTokenEntry(parent, idx)
     return btn
 end
 
+-- Returns (visibleCount, totalContentWidth) — totalContentWidth
+-- is the sum of each entry's actual width plus the gaps between
+-- them, so the caller can size frame.tokens precisely.
 local function UpdateTokens()
-    if not frame or not frame.tokens then return false end
+    if not frame or not frame.tokens then return 0, 0 end
 
     local tokens = frame.tokens
     local visible = 0
@@ -420,6 +426,11 @@ local function UpdateTokens()
         btn._currencyID = info.currencyTypesID
         btn.icon:SetTexture(info.iconFileID)
         btn.count:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(info.quantity or 0) or tostring(info.quantity or 0))
+
+        -- Size button to fit text + gap + icon. SetText must have
+        -- run before GetStringWidth so we read the resolved width.
+        local textW = btn.count:GetStringWidth() or 0
+        btn:SetWidth(textW + TOKEN_TEXT_ICON_GAP + TOKEN_ICON_SIZE)
         btn:Show()
     end
 
@@ -431,6 +442,9 @@ local function UpdateTokens()
     -- Layout entries right-to-left so they stack like coins.
     -- entries[1] is the rightmost token (matches Blizzard's
     -- TopRightToBottomLeft grid direction in BackpackTokenFrame).
+    -- Consistent TOKEN_GAP between every entry — even-spaced,
+    -- so short and long counts land in a visual rhythm.
+    local totalContentW = 0
     for i = 1, visible do
         local btn = tokens.entries[i]
         btn:ClearAllPoints()
@@ -438,10 +452,12 @@ local function UpdateTokens()
             btn:SetPoint("RIGHT", tokens, "RIGHT", -TOKEN_RIGHT_PAD, 0)
         else
             btn:SetPoint("RIGHT", tokens.entries[i - 1], "LEFT", -TOKEN_GAP, 0)
+            totalContentW = totalContentW + TOKEN_GAP
         end
+        totalContentW = totalContentW + (btn:GetWidth() or 0)
     end
 
-    return visible
+    return visible, totalContentW
 end
 
 ---------------------------------------------------------------------------
@@ -567,17 +583,17 @@ function Bag:Refresh()
 
     -- Tracked currencies — only update + show if the user enabled
     -- the row AND has at least one currency marked Show on Backpack.
-    local tokenCount = 0
-    if showTokens then tokenCount = UpdateTokens() or 0 end
-    local hasTokens = tokenCount > 0
+    local tokenCount, contentW = 0, 0
+    if showTokens then
+        tokenCount, contentW = UpdateTokens()
+    end
+    local hasTokens = (tokenCount or 0) > 0
 
     if hasTokens then
-        -- Dynamic width: left cap + entries (each TOKEN_ENTRY_W with
-        -- TOKEN_GAP between) + right cap. Symmetric with the money
-        -- frame's gold border.
-        local contentW = tokenCount * TOKEN_ENTRY_W
-                       + math.max(0, tokenCount - 1) * TOKEN_GAP
-        local totalW   = contentW + TOKEN_LEFT_PAD + TOKEN_RIGHT_PAD
+        -- Width = the actual content width returned by UpdateTokens
+        -- (sum of dynamically-sized entries + their gaps) plus the
+        -- two border-cap insets.
+        local totalW = (contentW or 0) + TOKEN_LEFT_PAD + TOKEN_RIGHT_PAD
 
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()

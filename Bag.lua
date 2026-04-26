@@ -681,7 +681,6 @@ events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency value or watch-state changes
-events:RegisterEvent("BACKPACK_CURRENCY_UPDATE")   -- pre-Midnight equivalent (defensive)
 events:SetScript("OnEvent", ScheduleRefresh)
 
 ---------------------------------------------------------------------------

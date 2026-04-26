@@ -320,16 +320,20 @@ local function BuildFrame()
     frame.tokens.rows    = {}   -- array of row frames (built lazily)
     frame.tokens.entries = {}   -- flat pool of per-currency entries
 
-    -- Solid-black layer behind the panel's translucent stock
-    -- background. PortraitFrameFlatTemplate's Bg uses
-    -- PANEL_BACKGROUND_COLOR which has built-in alpha (~0.7) — so
-    -- frame.Bg:SetAlpha(1) still reads as see-through. This extra
-    -- texture sits *under* frame.Bg at sub-level -1 so the dark
-    -- overlay still tints the panel, but at 100% opacity the result
-    -- is fully solid. Both layers scale together with the bgAlpha
-    -- setting (Refresh applies SetAlpha to both).
+    -- Solid layer behind the panel's translucent stock background.
+    -- PortraitFrameFlatTemplate's Bg uses PANEL_BACKGROUND_COLOR
+    -- which has built-in alpha (~0.7) — so frame.Bg:SetAlpha(1)
+    -- still reads as see-through. This extra texture sits *under*
+    -- frame.Bg at sub-level -1 so the dark overlay still tints the
+    -- panel, but at 100% opacity the result is fully solid. Both
+    -- layers scale together with the bgAlpha setting (Refresh
+    -- applies SetAlpha to both).
+    --
+    -- Colour is a warm dark grey (~RGB 38, 33, 28) rather than pure
+    -- black so the panel reads as greyish rather than a stark void.
+    -- Tuned to sit comfortably with the gold border.
     frame.solidBg = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
-    frame.solidBg:SetColorTexture(0, 0, 0, 1)
+    frame.solidBg:SetColorTexture(0.15, 0.13, 0.11, 1)
     frame.solidBg:SetPoint("TOPLEFT",     2, -20)
     frame.solidBg:SetPoint("BOTTOMRIGHT", -2, 3)
 

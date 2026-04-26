@@ -247,6 +247,23 @@ local function BuildFrame()
         savedAddon     = addon,
         savedKey       = "position",
         uiSpecialFrame = true,
+
+        -- Hover the portrait → tooltip explaining the click actions.
+        -- Right-click → bag-change popup. (Left-click on the portrait
+        -- doesn't drag the frame because the click overlay intercepts
+        -- it — drag from anywhere else on the title bar still works.)
+        portraitTooltip = {
+            title = "BazBags",
+            lines = {
+                "|cffffd700Right-click|r to change bags",
+                "|cffffd700Drag the title bar|r to move the panel",
+            },
+        },
+        portraitOnClick = function(_, button)
+            if button == "RightButton" then
+                Bag:ToggleBagChangePopup()
+            end
+        end,
     })
 
     -- Auto-sort button — Blizzard atlases at Blizzard's exact anchor
@@ -310,6 +327,152 @@ local function BuildFrame()
     end
 
     return frame
+end
+
+---------------------------------------------------------------------------
+-- Bag-change popup
+--
+-- A small floating panel anchored under the portrait. Holds five bag
+-- slot buttons — the four equipped bag slots plus the reagent bag.
+-- Drag a bag from your inventory onto a slot to equip it; drag a slot
+-- icon off to clear it. Mirrors what Blizzard surfaces via the
+-- character pane's "Bags" tab, just one click closer.
+---------------------------------------------------------------------------
+
+local BAG_SLOT_INV_IDS = {
+    INVSLOT_BAG_1 or 20,
+    INVSLOT_BAG_2 or 21,
+    INVSLOT_BAG_3 or 22,
+    INVSLOT_BAG_4 or 23,
+    -- Reagent bag (Dragonflight+). In Midnight retail this is also
+    -- valid; older clients without a reagent slot will simply have
+    -- the button render an empty inventory query.
+    Enum and Enum.InventoryType and Enum.InventoryType.IndexProfessionToolEquipmentType  -- defensive
+        or 24,
+}
+
+local function UpdateBagSlotButton(btn)
+    local slot = btn.invSlot
+    local link    = GetInventoryItemLink("player", slot)
+    local texture = GetInventoryItemTexture("player", slot)
+
+    SetItemButtonTexture(btn, texture or "")
+    if link then
+        local _, _, quality = GetItemInfo(link)
+        SetItemButtonQuality(btn, quality, link)
+    else
+        SetItemButtonQuality(btn, 0)
+    end
+end
+
+local function BuildBagSlotButton(parent, invSlot, isReagent)
+    local btn = CreateFrame("ItemButton", nil, parent, "ItemButtonTemplate")
+    btn:SetSize(36, 36)
+    btn:SetID(invSlot)
+    btn.invSlot = invSlot
+    btn:RegisterForDrag("LeftButton")
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+    btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if not GameTooltip:SetInventoryItem("player", self.invSlot) then
+            GameTooltip:SetText(isReagent and (REAGENT_BAG_HELP_TEXT or "Reagent Bag")
+                                or "Bag Slot")
+            GameTooltip:AddLine("Drag a bag here to equip it.", 1, 1, 1, true)
+        end
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    btn:SetScript("OnClick", function(self)
+        -- If the cursor has an item, drop it into this slot.
+        -- Otherwise no-op (don't toggle a bag — that's not the
+        -- popup's purpose).
+        if CursorHasItem() then
+            PutItemInBag(self.invSlot)
+        end
+    end)
+
+    btn:SetScript("OnDragStart", function(self)
+        PickupBagFromSlot(self.invSlot)
+    end)
+
+    btn:SetScript("OnReceiveDrag", function(self)
+        PutItemInBag(self.invSlot)
+    end)
+
+    return btn
+end
+
+local bagPopup
+local function BuildBagChangePopup()
+    if bagPopup then return bagPopup end
+    if not frame then return nil end
+
+    local PAD = 8
+    local SLOT_SIZE = 36
+    local SLOT_GAP  = 4
+    local slotCount = #BAG_SLOT_INV_IDS
+
+    local p = CreateFrame("Frame", "BazBagsBagChangePopup", frame, "BackdropTemplate")
+    p:SetSize(PAD * 2 + slotCount * SLOT_SIZE + (slotCount - 1) * SLOT_GAP,
+              PAD * 2 + SLOT_SIZE + 18)
+    p:SetFrameStrata("DIALOG")
+    p:SetBackdrop({
+        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile     = true, tileSize = 16, edgeSize = 16,
+        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    p:SetBackdropColor(0, 0, 0, 0.92)
+    p:SetBackdropBorderColor(0.6, 0.5, 0.2)
+    p:Hide()
+
+    -- Anchor under the portrait — the user clicks the portrait so the
+    -- popup naturally appears right next to it.
+    p:ClearAllPoints()
+    p:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -54)
+
+    -- Header label
+    p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    p.title:SetPoint("TOPLEFT", PAD, -PAD)
+    p.title:SetText("Bag Slots")
+    p.title:SetTextColor(1.00, 0.82, 0.00)
+
+    -- Bag buttons in a row
+    p.buttons = {}
+    for i, invSlot in ipairs(BAG_SLOT_INV_IDS) do
+        local isReagent = (i == #BAG_SLOT_INV_IDS)
+        local btn = BuildBagSlotButton(p, invSlot, isReagent)
+        btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+        btn:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT",
+            PAD + (i - 1) * (SLOT_SIZE + SLOT_GAP), PAD)
+        p.buttons[i] = btn
+    end
+
+    -- Refresh on inventory changes
+    local ev = CreateFrame("Frame", nil, p)
+    ev:RegisterEvent("BAG_UPDATE_DELAYED")
+    ev:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    ev:RegisterEvent("UNIT_INVENTORY_CHANGED")
+    ev:SetScript("OnEvent", function()
+        if not p:IsShown() then return end
+        for _, b in ipairs(p.buttons) do UpdateBagSlotButton(b) end
+    end)
+
+    bagPopup = p
+    return p
+end
+
+function Bag:ToggleBagChangePopup()
+    local p = BuildBagChangePopup()
+    if not p then return end
+    if p:IsShown() then
+        p:Hide()
+    else
+        for _, b in ipairs(p.buttons) do UpdateBagSlotButton(b) end
+        p:Show()
+    end
 end
 
 ---------------------------------------------------------------------------

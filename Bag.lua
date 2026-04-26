@@ -202,10 +202,25 @@ local function BuildFrame()
     f:SetBackdropColor(0, 0, 0, 0.92)
     f:SetBackdropBorderColor(0.6, 0.5, 0.2)
 
-    -- Title bar
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    -- Title bar — addon icon on the left, gold "BazBags" centered,
+    -- thin separator line beneath. Visually distinct from Blizzard's
+    -- combined bag title so you always know which UI you're in.
+    f.titleIcon = f:CreateTexture(nil, "OVERLAY")
+    f.titleIcon:SetSize(20, 20)
+    f.titleIcon:SetPoint("TOPLEFT", 8, -6)
+    f.titleIcon:SetTexture(5160585)  -- inv_misc_bag_horadricsatchel
+    f.titleIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOP", 0, -8)
     f.title:SetText("BazBags")
+    f.title:SetTextColor(1.00, 0.82, 0.00)  -- Baz suite gold
+
+    f.titleSep = f:CreateTexture(nil, "ARTWORK")
+    f.titleSep:SetHeight(1)
+    f.titleSep:SetPoint("TOPLEFT",  f, "TOPLEFT",  10, -TITLE_BAR_H + 1)
+    f.titleSep:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -TITLE_BAR_H + 1)
+    f.titleSep:SetColorTexture(0.6, 0.5, 0.2, 0.6)
 
     -- Close button
     f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")

@@ -75,6 +75,10 @@ local SECTIONS = {
     },
 }
 
+-- Category data and layouts live in their own modules — see
+-- Categories.lua and Layouts.lua. Bag.lua keeps the panel chrome,
+-- the bag-mode rendering, and the Refresh dispatcher.
+
 ---------------------------------------------------------------------------
 -- State
 ---------------------------------------------------------------------------
@@ -84,6 +88,12 @@ local bagContexts   = {}          -- [bagID] = invisible parent (provides GetID 
 local slotButtons   = {}          -- [bagID] = { [slotID] = button }
 local sections      = {}          -- [key]   = { header, body, ... }
 local refreshPending = false
+
+-- Sections is exposed so the Layouts module can hide them when it
+-- takes over (e.g. switching from Sections to Flow mode). Other
+-- internals are exposed at the bottom of the section-builder block
+-- once the helpers are defined.
+addon.Bag.sections = sections
 
 ---------------------------------------------------------------------------
 -- Section collapse persistence
@@ -226,6 +236,25 @@ local function BuildSection(def)
 
     return section
 end
+
+-- Lazily build a section frame for the given def. Used by both the
+-- bag-mode loop (which has fixed defs) and the Layouts module for
+-- category-mode rendering (where the def list depends on which
+-- categories currently hold items + any user custom categories).
+local function GetOrCreateSection(def)
+    if sections[def.key] then return sections[def.key] end
+    sections[def.key] = BuildSection(def)
+    return sections[def.key]
+end
+
+-- Public API surface for the Layouts module. Capturing the locals
+-- on addon.Bag means Layouts.lua can drive the same rendering
+-- primitives without re-implementing them.
+addon.Bag.GetOrCreateSection    = GetOrCreateSection
+addon.Bag.IsCollapsed           = IsCollapsed
+addon.Bag.SetCollapsed          = SetCollapsed
+addon.Bag.GetOrCreateSlotButton = GetOrCreateSlotButton
+addon.Bag.UpdateSlot            = UpdateSlot
 
 ---------------------------------------------------------------------------
 -- Top-level panel
@@ -829,73 +858,125 @@ function Bag:Refresh()
 
     local y = -TOP_PAD
 
-    for _, def in ipairs(SECTIONS) do
-        local section = sections[def.key]
-        local collapsed = IsCollapsed(def.key)
+    -- Dispatch to the appropriate layout. Bag mode renders the static
+    -- bag/reagent sections inline (kept here because it's the simple
+    -- common case). Category mode hands off to the Layouts module.
+    local mode = addon:GetSetting("bagMode") or "bags"
 
-        -- Header
-        section.header:ClearAllPoints()
-        section.header:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
-        section.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
-        section.toggle:SetTexture(collapsed
-            and "Interface\\Buttons\\UI-PlusButton-Up"
-            or  "Interface\\Buttons\\UI-MinusButton-Up")
-        y = y - SECTION_HEADER_H - 2
+    if mode == "categories" and addon.Layouts then
+        local layoutKey = addon:GetSetting("categoryLayout") or "flow"
+        local renderFn
+        if layoutKey == "sections" then
+            renderFn = addon.Layouts.RenderSections
+        elseif layoutKey == "hybrid" then
+            renderFn = addon.Layouts.RenderHybrid
+        else
+            renderFn = addon.Layouts.RenderFlow
+        end
 
-        -- Collect (bag, slot) pairs. When Hide Empty is on, skip slots
-        -- that don't currently hold an item.
-        local pairs_list = {}
-        for _, bagID in ipairs(def.bagIDs) do
-            local n = C_Container.GetContainerNumSlots(bagID) or 0
-            for slotID = 1, n do
-                if hideEmpty then
-                    local info = C_Container.GetContainerItemInfo(bagID, slotID)
-                    if info and info.iconFileID then
-                        pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
-                    end
-                else
-                    pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+        if renderFn then
+            -- Hide bag-mode sections when category mode is active so a
+            -- pooled section frame from a previous render doesn't peek
+            -- through the category layout.
+            for _, def in ipairs(SECTIONS) do
+                local section = sections[def.key]
+                if section then
+                    section.header:Hide()
+                    section.body:Hide()
                 end
             end
+
+            y = renderFn({
+                frame                 = frame,
+                cols                  = cols,
+                SLOT_SIZE             = SLOT_SIZE,
+                SLOT_SPACING_X        = SLOT_SPACING_X,
+                SLOT_SPACING_Y        = SLOT_SPACING_Y,
+                SECTION_HEADER_H      = SECTION_HEADER_H,
+                SIDE_PAD              = SIDE_PAD,
+                TOP_PAD               = TOP_PAD,
+                IsCollapsed           = IsCollapsed,
+                SetCollapsed          = SetCollapsed,
+                GetOrCreateSection    = GetOrCreateSection,
+                GetOrCreateSlotButton = GetOrCreateSlotButton,
+                UpdateSlot            = UpdateSlot,
+                Refresh               = function() Bag:Refresh() end,
+            })
         end
+    else
+        -- Bag mode (the default). One section per bag type with the
+        -- existing collapse / count chrome.
+        for _, def in ipairs(SECTIONS) do
+            local section = sections[def.key]
+            local collapsed = IsCollapsed(def.key)
 
-        -- Section count e.g. "3 / 24"
-        local total, free = 0, 0
-        for _, bagID in ipairs(def.bagIDs) do
-            free  = free  + (C_Container.GetContainerNumFreeSlots(bagID) or 0)
-            total = total + (C_Container.GetContainerNumSlots(bagID) or 0)
-        end
-        section.count:SetText(string.format("|cff999999%d / %d|r", total - free, total))
+            -- Header
+            section.header:ClearAllPoints()
+            section.header:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
+            section.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
+            section.toggle:SetTexture(collapsed
+                and "Interface\\Buttons\\UI-PlusButton-Up"
+                or  "Interface\\Buttons\\UI-MinusButton-Up")
+            section.title:SetText(def.title)
+            section.header:Show()
+            y = y - SECTION_HEADER_H - 2
 
-        -- Body layout
-        local rows  = math.ceil(#pairs_list / cols)
-        local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
-        if collapsed then bodyH = 0 end
-
-        section.body:ClearAllPoints()
-        section.body:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
-        section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
-        section.body:SetHeight(math.max(bodyH, 0.001))
-
-        if not collapsed then
-            for i, p in ipairs(pairs_list) do
-                local btn = GetOrCreateSlotButton(p.bagID, p.slotID)
-                local col = (i - 1) % cols
-                local row = math.floor((i - 1) / cols)
-
-                btn:ClearAllPoints()
-                btn:SetPoint("TOPLEFT", section.body, "TOPLEFT",
-                    col * (SLOT_SIZE + SLOT_SPACING_X),
-                    -row * (SLOT_SIZE + SLOT_SPACING_Y))
-                btn:Show()
-                UpdateSlot(btn, p.bagID, p.slotID)
+            -- Collect (bag, slot) pairs. When Hide Empty is on, skip slots
+            -- that don't currently hold an item.
+            local pairs_list = {}
+            for _, bagID in ipairs(def.bagIDs) do
+                local n = C_Container.GetContainerNumSlots(bagID) or 0
+                for slotID = 1, n do
+                    if hideEmpty then
+                        local info = C_Container.GetContainerItemInfo(bagID, slotID)
+                        if info and info.iconFileID then
+                            pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+                        end
+                    else
+                        pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+                    end
+                end
             end
-        end
 
-        if not collapsed then
-            y = y - bodyH - 8
-        else
-            y = y - 4
+            -- Section count e.g. "3 / 24"
+            local total, free = 0, 0
+            for _, bagID in ipairs(def.bagIDs) do
+                free  = free  + (C_Container.GetContainerNumFreeSlots(bagID) or 0)
+                total = total + (C_Container.GetContainerNumSlots(bagID) or 0)
+            end
+            section.count:SetText(string.format("|cff999999%d / %d|r", total - free, total))
+
+            -- Body layout
+            local rows  = math.ceil(#pairs_list / cols)
+            local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
+            if collapsed then bodyH = 0 end
+
+            section.body:ClearAllPoints()
+            section.body:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
+            section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
+            section.body:SetHeight(math.max(bodyH, 0.001))
+            section.body:Show()
+
+            if not collapsed then
+                for i, p in ipairs(pairs_list) do
+                    local btn = GetOrCreateSlotButton(p.bagID, p.slotID)
+                    local col = (i - 1) % cols
+                    local row = math.floor((i - 1) / cols)
+
+                    btn:ClearAllPoints()
+                    btn:SetPoint("TOPLEFT", section.body, "TOPLEFT",
+                        col * (SLOT_SIZE + SLOT_SPACING_X),
+                        -row * (SLOT_SIZE + SLOT_SPACING_Y))
+                    btn:Show()
+                    UpdateSlot(btn, p.bagID, p.slotID)
+                end
+            end
+
+            if not collapsed then
+                y = y - bodyH - 8
+            else
+                y = y - 4
+            end
         end
     end
 

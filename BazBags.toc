@@ -2,7 +2,7 @@
 ## Title: BazBags
 ## Notes: Lightweight unified bag panel with collapsible sections per bag type
 ## Author: Baz4k
-## Version: 025
+## Version: 026
 ## X-License: GPL v2
 ## Category: Baz Suite
 ## X-Category: Bags & Inventory
@@ -12,5 +12,7 @@
 ## SavedVariables: BazBagsDB
 
 Core.lua
+Categories.lua
+Layouts.lua
 Bag.lua
 UserGuide.lua

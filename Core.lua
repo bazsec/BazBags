@@ -17,6 +17,35 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         cols          = 12,    -- columns wide; 4..20 via the slider — 12 fits a typical bag in 2-3 rows
         hideEmpty     = true,  -- skip empty slots by default — most first-time users prefer the compact view
 
+        -- Grouping mode:
+        --   "bags"       (default) — Blizzard-style sections per bag/reagent
+        --   "categories"           — group items by category (Equipment,
+        --                            Consumables, etc.) regardless of bag
+        bagMode = "bags",
+
+        -- When bagMode == "categories", picks how categories render:
+        --   "sections" — full-width header per category with its own grid
+        --   "flow"     — items pack continuously, inline pill labels mark
+        --                category boundaries (no wasted rows for tiny
+        --                categories)
+        --   "hybrid"   — section headers like "sections", but partial
+        --                last rows pack the next category inline before
+        --                starting a fresh header
+        categoryLayout = "flow",
+
+        -- Custom categories. Keys are auto-generated at creation time
+        -- ("custom1", "custom2", ...). Values are { name, order }. Empty
+        -- by default; the management UI lives in Settings → Categories
+        -- (planned for v2 — storage exists already so v1 doesn't break
+        -- the data shape).
+        customCategories = {},
+
+        -- Item-to-custom-category overrides. {[itemID] = categoryKey}.
+        -- Wins over the auto-classifier in ClassifyItem so a user-
+        -- pinned Iron Bar sits in their custom "Crafting" group rather
+        -- than the built-in "tradegoods".
+        itemCategories = {},
+
         -- Footer
         showMoney       = true,   -- gold/silver/copper row at the bottom
         showTokens      = true,   -- tracked-currency (green) row below the money
@@ -24,7 +53,8 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         useDefaultTitle = false,  -- show "Combined Backpack" instead of "BazBags"
 
         -- Section collapse state. Per-section, persisted across
-        -- sessions so the user's preference sticks.
+        -- sessions so the user's preference sticks. Built-in bag
+        -- sections + every category key share this map.
         sectionCollapsed = {
             bags     = false,
             reagents = false,
@@ -142,6 +172,46 @@ local function GetSettingsPage()
                     addon:SetSetting("hideEmpty", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
+                disabled = function() return addon:GetSetting("bagMode") == "categories" end,
+            },
+
+            groupingHeader = {
+                order = 5,
+                type  = "header",
+                name  = "Grouping",
+            },
+            bagMode = {
+                order = 6,
+                type  = "select",
+                name  = "Mode",
+                desc  = "Bags shows one collapsible section per equipped bag (the default Blizzard layout). Categories regroups items by what they are — Equipment, Consumables, Trade Goods, Quest Items, Junk, Other — regardless of which bag holds them.",
+                values = {
+                    bags       = "Bags (per-bag sections)",
+                    categories = "Categories (group by item type)",
+                },
+                get = function() return addon:GetSetting("bagMode") or "bags" end,
+                set = function(_, val)
+                    addon:SetSetting("bagMode", val)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                    BazCore:RefreshOptions("BazBags-Settings")
+                end,
+            },
+            categoryLayout = {
+                order = 7,
+                type  = "select",
+                name  = "Category Layout",
+                desc  = "How categories arrange themselves. Sections is the most familiar (header + grid per category). Flow packs items continuously with inline pill labels — best for small categories. Hybrid uses sections, but tiny categories pack inline onto a previous section's partial last row.",
+                values = {
+                    sections = "Sections (header + grid per category)",
+                    flow     = "Flow (continuous, inline labels)",
+                    hybrid   = "Hybrid (sections + last-row packing)",
+                },
+                get = function() return addon:GetSetting("categoryLayout") or "flow" end,
+                set = function(_, val)
+                    addon:SetSetting("categoryLayout", val)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+                disabled = function() return addon:GetSetting("bagMode") ~= "categories" end,
             },
 
             titleHeader = {

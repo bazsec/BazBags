@@ -334,7 +334,7 @@ local function BuildFrame()
     -- the same horizontal line.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
     frame.money:ClearAllPoints()
-    frame.money:SetPoint("RIGHT", frame, "TOPRIGHT", -12, -46)
+    frame.money:SetPoint("RIGHT", frame, "TOPRIGHT", -12, -47)
     frame.search:SetPoint("RIGHT", frame.money, "LEFT", -8, 0)
 
     -- Match the money frame's gold-coinbox border height to the

@@ -323,12 +323,18 @@ local function BuildFrame()
     -- Money frame — Blizzard's exact gold/silver/copper readout.
     -- Anchored where Blizzard's auto-sort button used to live so the
     -- player's gold sits next to the title bar instead of taking a
-    -- whole row at the bottom of the panel. The search box anchors
-    -- to its LEFT, so longer gold totals automatically shrink the
-    -- search field rather than overflowing the chrome.
+    -- whole row at the bottom of the panel.
+    --
+    -- Anchored by its RIGHT (right-middle) edge instead of TOPRIGHT so
+    -- the vertical centre lines up with the search bar's centre
+    -- regardless of the money frame's intrinsic height (which varies
+    -- with Blizzard's template). Search bar centre:
+    --   TOPLEFT y = -37, height 18  →  centre y = -46
+    -- Pinning money's right-middle to (-12, -46) puts both centres on
+    -- the same horizontal line.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
     frame.money:ClearAllPoints()
-    frame.money:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -34)
+    frame.money:SetPoint("RIGHT", frame, "TOPRIGHT", -12, -46)
     frame.search:SetPoint("RIGHT", frame.money, "LEFT", -8, 0)
 
     -- Scroll container for the bag content (sections, dividers, slots).

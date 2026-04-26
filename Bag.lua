@@ -356,66 +356,31 @@ local function UpdateBagSlotButton(btn)
     local link    = GetInventoryItemLink("player", slot)
     local texture = GetInventoryItemTexture("player", slot)
 
-    if texture then
-        btn.icon:SetTexture(texture)
-        btn.icon:Show()
-    else
-        btn.icon:Hide()
-    end
-
+    btn:SetIconTexture(texture)
     if link then
         local _, _, quality = GetItemInfo(link)
-        if quality and quality > 1 then
-            local r, g, b = GetItemQualityColor(quality)
-            btn.IconBorder:SetVertexColor(r, g, b)
-            btn.IconBorder:Show()
-        else
-            btn.IconBorder:Hide()
-        end
+        btn:SetQuality(quality, link)
     else
-        btn.IconBorder:Hide()
+        btn:SetQuality(0)
     end
 end
 
 local function BuildBagSlotButton(parent, invSlot, isReagent)
-    -- Both ItemButtonTemplate and BagSlotButtonTemplate are XML-only
-    -- in retail Midnight — they exist for Blizzard's own frames but
-    -- aren't exposed as CreateFrame targets, so any addon trying to
-    -- inherit them throws "Couldn't find inherited node". We build
-    -- the button by hand instead: a vanilla Button with the same
-    -- chrome (slot atlas background, icon, quality border, highlight,
-    -- pushed) the templates would have provided.
-    local btn = CreateFrame("Button", nil, parent)
-    btn:SetSize(36, 36)
+    -- BazCore:CreateItemButton hands us an ItemButton-styled frame
+    -- (icon + quality border + slot background + highlight + pushed)
+    -- without going through ItemButtonTemplate / BagSlotButtonTemplate
+    -- — both of those exist in Blizzard's XML but aren't exposed as
+    -- runtime CreateFrame targets in retail Midnight. The bag-slot
+    -- background uses the same "bags-item-slot64" atlas as Blizzard's
+    -- combined bag, so empty slots show the familiar slot artwork.
+    local btn = BazCore:CreateItemButton(parent, {
+        size      = 36,
+        slotAtlas = "bags-item-slot64",
+    })
     btn:SetID(invSlot)
     btn.invSlot = invSlot
     btn:RegisterForDrag("LeftButton")
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-
-    -- Empty-slot atlas — same artwork Blizzard's combined bag uses
-    -- for the per-slot background. Renders behind the icon so empty
-    -- slots show the slot art and equipped bags overlay their icon.
-    local bg = btn:CreateTexture(nil, "BACKGROUND")
-    bg:SetAtlas("bags-item-slot64")
-    bg:SetAllPoints()
-    btn.SlotBackground = bg
-
-    -- Item icon (texture set in UpdateBagSlotButton).
-    btn.icon = btn:CreateTexture(nil, "BORDER")
-    btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    btn.icon:SetPoint("TOPLEFT",     1, -1)
-    btn.icon:SetPoint("BOTTOMRIGHT", -1, 1)
-    btn.icon:Hide()
-
-    -- Quality border (uncommon+).
-    btn.IconBorder = btn:CreateTexture(nil, "OVERLAY")
-    btn.IconBorder:SetTexture("Interface/Common/WhiteIconFrame")
-    btn.IconBorder:SetAllPoints(btn.icon)
-    btn.IconBorder:Hide()
-
-    -- Hover highlight + click-down feedback.
-    btn:SetHighlightTexture("Interface/Buttons/ButtonHilight-Square", "ADD")
-    btn:SetPushedTexture("Interface/Buttons/UI-Quickslot-Depress")
 
     btn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")

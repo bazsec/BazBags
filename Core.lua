@@ -13,6 +13,10 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
     savedVariable = "BazBagsDB",
     profiles      = true,
     defaults = {
+        -- Layout
+        cols      = 8,        -- columns wide; 4..16 via the slider
+        hideEmpty = false,    -- skip empty slots when rendering (compact view)
+
         -- Section collapse state. Per-section, persisted across
         -- sessions so the user's preference sticks.
         sectionCollapsed = {
@@ -88,7 +92,59 @@ local function GetLandingPage()
     })
 end
 
+---------------------------------------------------------------------------
+-- Settings page — landing page sub-category
+---------------------------------------------------------------------------
+
+local function GetSettingsPage()
+    return {
+        name = "Settings",
+        type = "group",
+        args = {
+            intro = {
+                order = 0.1,
+                type  = "lead",
+                text  = "Configure how the bag panel renders. Changes apply live — open the panel with /bbg to see them.",
+            },
+
+            layoutHeader = {
+                order = 1,
+                type  = "header",
+                name  = "Layout",
+            },
+            cols = {
+                order = 2,
+                type  = "range",
+                name  = "Columns",
+                desc  = "How many slots wide the panel should be. The window resizes around this; rows are added or removed automatically.",
+                min   = 4,
+                max   = 20,
+                step  = 1,
+                get   = function() return addon:GetSetting("cols") or 8 end,
+                set   = function(_, val)
+                    addon:SetSetting("cols", val)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            hideEmpty = {
+                order = 3,
+                type  = "toggle",
+                name  = "Hide Empty Slots",
+                desc  = "Skip empty slots when rendering — shows only slots with items. Compact view; the panel shrinks vertically when many slots are empty.",
+                get   = function() return addon:GetSetting("hideEmpty") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("hideEmpty", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+        },
+    }
+end
+
 addon.config.onLoad = function(self)
     BazCore:RegisterOptionsTable(ADDON_NAME, GetLandingPage)
     BazCore:AddToSettings(ADDON_NAME, "BazBags")
+
+    BazCore:RegisterOptionsTable(ADDON_NAME .. "-Settings", GetSettingsPage)
+    BazCore:AddToSettings(ADDON_NAME .. "-Settings", "General Settings", ADDON_NAME)
 end

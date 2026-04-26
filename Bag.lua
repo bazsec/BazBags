@@ -28,7 +28,7 @@ addon.Bag = Bag
 -- Layout constants — chosen to match Blizzard's combined bag exactly.
 ---------------------------------------------------------------------------
 
-local COLS              = 8       -- Blizzard's default combined-bag column count
+local DEFAULT_COLS      = 8       -- starting column count when no setting saved
 local SLOT_SIZE         = 37      -- ContainerFrameItemButtonTemplate native size
 local SLOT_SPACING_X    = 5       -- Blizzard's ITEM_SPACING_X
 local SLOT_SPACING_Y    = 4
@@ -36,6 +36,22 @@ local SECTION_HEADER_H  = 20
 local TOP_PAD           = 60      -- below title bar — leaves room for search/sort row
 local BOTTOM_PAD        = 36      -- above footer
 local SIDE_PAD          = 12
+
+-- Live setting readers — re-evaluated on every Refresh so the panel
+-- reshapes immediately when the user moves the Columns slider or
+-- toggles Hide Empty on the General Settings page.
+local function GetCols()
+    local v = addon:GetSetting("cols")
+    return (type(v) == "number" and v >= 1) and v or DEFAULT_COLS
+end
+
+local function HideEmpty()
+    return addon:GetSetting("hideEmpty") and true or false
+end
+
+local function PanelWidthFor(cols)
+    return cols * SLOT_SIZE + math.max(0, cols - 1) * SLOT_SPACING_X + SIDE_PAD * 2
+end
 
 -- Bag type → section definition. Order is the visual order top-to-bottom.
 local SECTIONS = {
@@ -218,7 +234,7 @@ end
 local function BuildFrame()
     if frame then return frame end
 
-    local panelW = COLS * SLOT_SIZE + (COLS - 1) * SLOT_SPACING_X + SIDE_PAD * 2
+    local panelW = PanelWidthFor(GetCols())
 
     -- BazCore handles the Blizzard-styled chrome (PortraitFrameFlatTemplate)
     -- including title bar, portrait, close button, drag, and ESC-close.
@@ -289,6 +305,26 @@ end
 function Bag:Refresh()
     if not frame then return end
 
+    -- Live settings — re-read on every refresh so toggling the Columns
+    -- slider or Hide Empty toggle applies immediately.
+    local cols       = GetCols()
+    local hideEmpty  = HideEmpty()
+
+    -- Resize the panel width to match the column count. The search bar
+    -- + sort button + money frame are anchored relative to the panel
+    -- edges so they reflow automatically.
+    frame:SetWidth(PanelWidthFor(cols))
+
+    -- Hide every existing slot button up front. Anything we still want
+    -- visible gets re-shown + repositioned in the layout loop. This is
+    -- the simplest way to handle (a) Hide Empty on/off, (b) bag size
+    -- shrinking, and (c) section-collapsed-this-frame all at once.
+    for _, slots in pairs(slotButtons) do
+        for _, btn in pairs(slots) do
+            btn:Hide()
+        end
+    end
+
     local y = -TOP_PAD
 
     for _, def in ipairs(SECTIONS) do
@@ -304,12 +340,20 @@ function Bag:Refresh()
             or  "Interface\\Buttons\\UI-MinusButton-Up")
         y = y - SECTION_HEADER_H - 2
 
-        -- Collect (bag, slot) pairs
+        -- Collect (bag, slot) pairs. When Hide Empty is on, skip slots
+        -- that don't currently hold an item.
         local pairs_list = {}
         for _, bagID in ipairs(def.bagIDs) do
             local n = C_Container.GetContainerNumSlots(bagID) or 0
             for slotID = 1, n do
-                pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+                if hideEmpty then
+                    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+                    if info and info.iconFileID then
+                        pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+                    end
+                else
+                    pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
+                end
             end
         end
 
@@ -322,7 +366,7 @@ function Bag:Refresh()
         section.count:SetText(string.format("|cff999999%d / %d|r", total - free, total))
 
         -- Body layout
-        local rows  = math.ceil(#pairs_list / COLS)
+        local rows  = math.ceil(#pairs_list / cols)
         local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
         if collapsed then bodyH = 0 end
 
@@ -331,15 +375,13 @@ function Bag:Refresh()
         section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
         section.body:SetHeight(math.max(bodyH, 0.001))
 
-        for i, p in ipairs(pairs_list) do
-            local btn = GetOrCreateSlotButton(p.bagID, p.slotID)
-            local col = (i - 1) % COLS
-            local row = math.floor((i - 1) / COLS)
+        if not collapsed then
+            for i, p in ipairs(pairs_list) do
+                local btn = GetOrCreateSlotButton(p.bagID, p.slotID)
+                local col = (i - 1) % cols
+                local row = math.floor((i - 1) / cols)
 
-            btn:ClearAllPoints()
-            if collapsed then
-                btn:Hide()
-            else
+                btn:ClearAllPoints()
                 btn:SetPoint("TOPLEFT", section.body, "TOPLEFT",
                     col * (SLOT_SIZE + SLOT_SPACING_X),
                     -row * (SLOT_SIZE + SLOT_SPACING_Y))
@@ -355,18 +397,7 @@ function Bag:Refresh()
         end
     end
 
-    -- Hide stale buttons (bag was unequipped / smaller now)
-    for bagID, slots in pairs(slotButtons) do
-        local n = C_Container.GetContainerNumSlots(bagID) or 0
-        for slotID, btn in pairs(slots) do
-            if slotID > n then
-                btn:Hide()
-                btn:ClearAllPoints()
-            end
-        end
-    end
-
-    -- Resize panel to fit
+    -- Resize panel to fit (height adjusts to total section content)
     frame:SetHeight(math.abs(y) + BOTTOM_PAD)
 
     -- Footer status: free / total across the whole bag

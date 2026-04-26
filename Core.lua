@@ -14,8 +14,9 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
     profiles      = true,
     defaults = {
         -- Layout
-        cols      = 8,        -- columns wide; 4..16 via the slider
+        cols      = 8,        -- columns wide; 4..20 via the slider
         hideEmpty = false,    -- skip empty slots when rendering (compact view)
+        goldOnly  = false,    -- hide silver + copper in the footer money display
 
         -- Section collapse state. Per-section, persisted across
         -- sessions so the user's preference sticks.
@@ -134,6 +135,23 @@ local function GetSettingsPage()
                 get   = function() return addon:GetSetting("hideEmpty") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("hideEmpty", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+
+            footerHeader = {
+                order = 10,
+                type  = "header",
+                name  = "Footer",
+            },
+            goldOnly = {
+                order = 11,
+                type  = "toggle",
+                name  = "Gold Only",
+                desc  = "Show only your gold count in the footer; hide silver and copper. Useful at high gold totals where the silver/copper digits add visual noise.",
+                get   = function() return addon:GetSetting("goldOnly") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("goldOnly", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },

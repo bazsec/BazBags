@@ -282,9 +282,13 @@ local function BuildFrame()
     frame.search:SetPoint("TOPLEFT", 62, -36)
     frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
 
-    -- Money frame — Blizzard's exact gold/silver/copper readout.
+    -- Money frame — Blizzard's exact gold/silver/copper readout. The
+    -- template carries its own gold-trimmed backdrop that draws past
+    -- our panel border at a tight anchor, so we inset further from
+    -- the panel edge than the typical 10px to keep both borders clear
+    -- of each other.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
-    frame.money:SetPoint("BOTTOMRIGHT", -10, 8)
+    frame.money:SetPoint("BOTTOMRIGHT", -22, 14)
 
     -- Footer status (free / total slots)
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -410,10 +414,27 @@ function Bag:Refresh()
     end
     frame.status:SetText(string.format("%d / %d slots", totalSlots - totalFree, totalSlots))
 
-    -- Money frame refresh — Blizzard updates this on MoneyTypeInfo events
-    -- but we kick it on each refresh too in case events were missed.
-    if frame.money and MoneyFrame_Update then
-        MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
+    -- Money frame: refresh values, then optionally collapse to gold-only
+    -- by hiding silver + copper and re-anchoring gold to the right edge
+    -- of the money frame so it doesn't sit alone in the middle of empty
+    -- space where silver/copper used to be.
+    if frame.money then
+        if MoneyFrame_Update then
+            MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
+        end
+
+        local goldOnly = addon:GetSetting("goldOnly") and true or false
+        if frame.money.SilverButton then frame.money.SilverButton:SetShown(not goldOnly) end
+        if frame.money.CopperButton then frame.money.CopperButton:SetShown(not goldOnly) end
+        if frame.money.GoldButton then
+            frame.money.GoldButton:ClearAllPoints()
+            if goldOnly then
+                frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", 0, 0)
+            elseif frame.money.SilverButton then
+                -- Restore the template's default anchor relationship
+                frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)
+            end
+        end
     end
 end
 

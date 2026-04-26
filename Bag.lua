@@ -437,10 +437,9 @@ local function BuildBagChangePopup()
     p:SetBackdropBorderColor(0.6, 0.5, 0.2)
     p:Hide()
 
-    -- Anchor under the portrait — the user clicks the portrait so the
-    -- popup naturally appears right next to it.
-    p:ClearAllPoints()
-    p:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -54)
+    -- Position is set per-Show in PositionBagPopup so we adapt to the
+    -- bag's current screen position (above when there's room, below
+    -- otherwise) — see the comment block on PositionBagPopup.
 
     -- Header label
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -473,12 +472,37 @@ local function BuildBagChangePopup()
     return p
 end
 
+-- Position the popup outside the bag panel so it doesn't obscure
+-- bag contents. We pick the side adaptively: above the bag when
+-- there's screen room (so the popup floats near the portrait the
+-- user just clicked), below the bag when the panel is already near
+-- the top of the screen. The 80 px threshold leaves a comfortable
+-- gap for the popup's ~62 px height plus the small visual offset.
+local function PositionBagPopup(p)
+    if not p or not frame then return end
+    p:ClearAllPoints()
+
+    local screenH    = UIParent and UIParent:GetHeight() or 1080
+    local bagTop     = frame:GetTop() or screenH
+    local roomAbove  = screenH - bagTop
+
+    if roomAbove >= 80 then
+        -- Above the bag, x-offset clears the portrait so the popup
+        -- sits beside it rather than under it.
+        p:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 56, 4)
+    else
+        -- Below the bag, aligned to the left edge.
+        p:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -4)
+    end
+end
+
 function Bag:ToggleBagChangePopup()
     local p = BuildBagChangePopup()
     if not p then return end
     if p:IsShown() then
         p:Hide()
     else
+        PositionBagPopup(p)
         for _, b in ipairs(p.buttons) do UpdateBagSlotButton(b) end
         p:Show()
     end

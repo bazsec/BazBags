@@ -249,13 +249,16 @@ local function BuildFrame()
         uiSpecialFrame = true,
     })
 
-    -- Auto-sort button — Blizzard atlases, exact UX match.
+    -- Auto-sort button — Blizzard atlases at Blizzard's exact anchor
+    -- (-9, -34) and size (28x26). Matches the combined-bag layout from
+    -- ContainerFrame.lua:978 so it lines up vertically with the search
+    -- box at TOPLEFT 62, -37 (centers within ~1 px of each other).
     frame.sort = CreateFrame("Button", nil, frame)
     frame.sort:SetSize(28, 26)
     frame.sort:SetNormalAtlas("bags-button-autosort-up")
     frame.sort:SetPushedAtlas("bags-button-autosort-down")
     frame.sort:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-    frame.sort:SetPoint("TOPRIGHT", -28, -27)
+    frame.sort:SetPoint("TOPRIGHT", -9, -34)
     frame.sort:SetScript("OnClick", function()
         if SOUNDKIT and SOUNDKIT.UI_BAG_SORTING_01 then
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
@@ -278,8 +281,8 @@ local function BuildFrame()
     -- placeholder text, focus/blur visuals, and live filtering of
     -- ContainerFrameItemButton instances via SetMatchesSearch.
     frame.search = CreateFrame("EditBox", nil, frame, "BagSearchBoxTemplate")
-    frame.search:SetSize(panelW - 100, 18)
-    frame.search:SetPoint("TOPLEFT", 62, -36)
+    frame.search:SetHeight(18)
+    frame.search:SetPoint("TOPLEFT", 62, -37)               -- Blizzard's exact anchor
     frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
 
     -- Money frame — Blizzard's exact gold/silver/copper readout. The

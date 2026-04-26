@@ -1,21 +1,20 @@
 ---------------------------------------------------------------------------
 -- BazBags — bag panel UI
 --
--- Single combined window with one collapsible section per bag type:
---   * Bags     — main backpack + equipped bags 1-4 (Enum.BagIndex 0..4)
---   * Reagents — reagent bag (Enum.BagIndex.ReagentBag)
+-- A faithful clone of Blizzard's combined-bag panel chrome:
+--   * Frame: BazCore:CreatePortraitWindow → PortraitFrameFlatTemplate
+--   * Slots: ContainerFrameItemButtonTemplate (Blizzard's own template,
+--            including ItemSlotBackgroundCombinedBagsTemplate background
+--            via :Initialize() — that's what fixes the "blue tint" on
+--            empty slots; the leather/brown atlas only renders when the
+--            slot's parent reports IsCombinedBagContainer() == true)
+--   * Money:  ContainerMoneyFrameTemplate
+--   * Search: BagSearchBoxTemplate
+--   * Sort:   bags-button-autosort-up/down atlases
 --
--- Each section header uses the same +/- toggle textures the User
--- Manual tree and source-grouped widget list do, so the visual
--- language stays consistent across the suite.
---
--- We use Blizzard's `ContainerFrameItemButtonTemplate` for the slots,
--- which gives us cooldown sweep, quality border, drag/drop wiring,
--- click-to-use, and all the secure handling for combat items for free.
--- The button reads its bag id from its parent frame's GetID(), so we
--- create a tiny "bag context" parent per bag id and put the buttons
--- there even though the buttons themselves are positioned in our
--- visual grid via SetPoint.
+-- Layered on top of the clone: collapsible sections per bag type
+-- (Bags + Reagents) — fold either away in the same window instead
+-- of the separate-window UX Blizzard ships.
 ---------------------------------------------------------------------------
 
 local ADDON_NAME = "BazBags"
@@ -26,24 +25,24 @@ local Bag = {}
 addon.Bag = Bag
 
 ---------------------------------------------------------------------------
--- Layout constants
+-- Layout constants — chosen to match Blizzard's combined bag exactly.
 ---------------------------------------------------------------------------
 
-local COLS              = 8           -- slots per row
-local SLOT_SIZE         = 37
-local SLOT_GAP          = 2
-local SECTION_HEADER_H  = 22
-local PANEL_PAD         = 10
-local TITLE_BAR_H       = 28
-local FOOTER_H          = 28
+local COLS              = 8       -- Blizzard's default combined-bag column count
+local SLOT_SIZE         = 37      -- ContainerFrameItemButtonTemplate native size
+local SLOT_SPACING_X    = 5       -- Blizzard's ITEM_SPACING_X
+local SLOT_SPACING_Y    = 4
+local SECTION_HEADER_H  = 20
+local TOP_PAD           = 60      -- below title bar — leaves room for search/sort row
+local BOTTOM_PAD        = 36      -- above footer
+local SIDE_PAD          = 12
 
--- Bag type → section definition. Order here is the visual order in
--- the panel (top to bottom).
+-- Bag type → section definition. Order is the visual order top-to-bottom.
 local SECTIONS = {
     {
-        key     = "bags",
-        title   = "Bags",
-        bagIDs  = {
+        key    = "bags",
+        title  = "Bags",
+        bagIDs = {
             Enum.BagIndex.Backpack,
             Enum.BagIndex.Bag_1,
             Enum.BagIndex.Bag_2,
@@ -52,9 +51,9 @@ local SECTIONS = {
         },
     },
     {
-        key     = "reagents",
-        title   = "Reagents",
-        bagIDs  = {
+        key    = "reagents",
+        title  = "Reagents",
+        bagIDs = {
             Enum.BagIndex.ReagentBag,
         },
     },
@@ -65,13 +64,13 @@ local SECTIONS = {
 ---------------------------------------------------------------------------
 
 local frame                       -- top-level panel
-local bagContexts   = {}          -- [bagID] = invisible parent (provides GetID for ItemButton template)
+local bagContexts   = {}          -- [bagID] = invisible parent (provides GetID + IsCombinedBagContainer for slots)
 local slotButtons   = {}          -- [bagID] = { [slotID] = button }
-local sections      = {}          -- [key] = { header, body, ... } built from SECTIONS
+local sections      = {}          -- [key]   = { header, body, ... }
 local refreshPending = false
 
 ---------------------------------------------------------------------------
--- Helpers
+-- Section collapse persistence
 ---------------------------------------------------------------------------
 
 local function IsCollapsed(key)
@@ -85,11 +84,24 @@ local function SetCollapsed(key, val)
     addon:SetSetting("sectionCollapsed", map)
 end
 
+---------------------------------------------------------------------------
+-- Bag context frames + item slot construction
+--
+-- Each slot needs to be parented to a frame whose GetID() returns the
+-- bag ID. The slot template's mixin reads `parent:IsCombinedBagContainer()`
+-- in Initialize() — when that returns true, it adds the proper
+-- ItemSlotBackgroundCombinedBagsTemplate texture (leather/brown art),
+-- which is what makes empty slots look like Blizzard's combined bag
+-- instead of the default ItemButton "blue square" appearance.
+---------------------------------------------------------------------------
+
 local function GetOrCreateBagContext(bagID)
     if bagContexts[bagID] then return bagContexts[bagID] end
     local f = CreateFrame("Frame", nil, frame)
     f:SetID(bagID)
-    f:SetSize(1, 1)  -- invisible — exists only to provide GetID() for child buttons
+    f:SetSize(1, 1)
+    -- Blizzard's slot Initialize checks this to add the combined-bag bg.
+    f.IsCombinedBagContainer = function() return true end
     bagContexts[bagID] = f
     return f
 end
@@ -101,11 +113,57 @@ local function GetOrCreateSlotButton(bagID, slotID)
     local parent = GetOrCreateBagContext(bagID)
     local name = "BazBagSlot_" .. bagID .. "_" .. slotID
     local btn = CreateFrame("ItemButton", name, parent, "ContainerFrameItemButtonTemplate")
-    btn:SetID(slotID)
-    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+
+    -- Initialize handles SetID, SetBagID attribute, ItemSlotBackground
+    -- (the combined-bag leather background), and Show. Without this we
+    -- get the default empty-slot appearance, which is the source of the
+    -- blue tint on empty slots reported earlier.
+    if btn.Initialize then
+        btn:Initialize(bagID, slotID)
+    else
+        btn:SetID(slotID)
+    end
 
     slotButtons[bagID][slotID] = btn
     return btn
+end
+
+---------------------------------------------------------------------------
+-- Slot rendering — mirrors ContainerFrameMixin:UpdateItems exactly.
+---------------------------------------------------------------------------
+
+local function UpdateSlot(btn, bagID, slotID)
+    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+    local texture   = info and info.iconFileID
+    local count     = info and info.stackCount
+    local locked    = info and info.isLocked
+    local quality   = info and info.quality
+    local link      = info and info.hyperlink
+    local isFiltered = info and info.isFiltered
+    local noValue   = info and info.hasNoValue
+    local isBound   = info and info.isBound
+
+    local questInfo = C_Container.GetContainerItemQuestInfo(bagID, slotID)
+    local isQuestItem = questInfo and questInfo.isQuestItem
+    local questID     = questInfo and questInfo.questID
+    local isActive    = questInfo and questInfo.isActive
+
+    if ClearItemButtonOverlay then ClearItemButtonOverlay(btn) end
+
+    if btn.SetHasItem then btn:SetHasItem(texture) end
+    SetItemButtonTexture(btn, texture)
+    SetItemButtonQuality(btn, quality, link, false, isBound)
+    SetItemButtonCount(btn, count)
+    SetItemButtonDesaturated(btn, locked)
+
+    if btn.UpdateExtended         then btn:UpdateExtended() end
+    if btn.UpdateQuestItem        then btn:UpdateQuestItem(isQuestItem, questID, isActive) end
+    if btn.UpdateNewItem          then btn:UpdateNewItem(quality) end
+    if btn.UpdateJunkItem         then btn:UpdateJunkItem(quality, noValue) end
+    if btn.UpdateItemContextMatching then btn:UpdateItemContextMatching() end
+    if btn.UpdateCooldown         then btn:UpdateCooldown(texture) end
+    if btn.SetReadable            then btn:SetReadable(info and info.IsReadable) end
+    if btn.SetMatchesSearch       then btn:SetMatchesSearch(not isFiltered) end
 end
 
 ---------------------------------------------------------------------------
@@ -115,7 +173,6 @@ end
 local function BuildSection(def)
     local section = { def = def }
 
-    -- Header (clickable to toggle collapse)
     local header = CreateFrame("Button", nil, frame)
     header:SetHeight(SECTION_HEADER_H)
     section.header = header
@@ -133,6 +190,7 @@ local function BuildSection(def)
     local title = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("LEFT", toggle, "RIGHT", 6, 0)
     title:SetText(def.title)
+    title:SetTextColor(1.00, 0.82, 0.00)  -- suite gold to read as a "Baz section"
     section.title = title
 
     local count = header:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -146,7 +204,7 @@ local function BuildSection(def)
         Bag:Refresh()
     end)
 
-    -- Body — holds the slot buttons; height is computed in Refresh()
+    -- Body holds the slot buttons. Height is computed in Refresh().
     local body = CreateFrame("Frame", nil, frame)
     section.body = body
 
@@ -160,184 +218,117 @@ end
 local function BuildFrame()
     if frame then return frame end
 
-    local f = CreateFrame("Frame", "BazBagsFrame", UIParent, "BackdropTemplate")
-    f:SetSize(COLS * (SLOT_SIZE + SLOT_GAP) - SLOT_GAP + PANEL_PAD * 2, 200)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:SetClampedToScreen(true)
-    f:SetFrameStrata("HIGH")
-    f:RegisterForDrag("LeftButton")
-    f:Hide()
+    local panelW = COLS * SLOT_SIZE + (COLS - 1) * SLOT_SPACING_X + SIDE_PAD * 2
 
-    -- Restore saved position or default to centered
-    local saved = addon:GetSetting("position")
-    f:ClearAllPoints()
-    if saved and saved.point then
-        f:SetPoint(saved.point, UIParent, saved.relPoint or saved.point,
-                   saved.x or 0, saved.y or 0)
-    else
-        f:SetPoint("CENTER")
-    end
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local point, _, relPoint, x, y = self:GetPoint()
-        addon:SetSetting("position", {
-            point    = point,
-            relPoint = relPoint,
-            x        = x,
-            y        = y,
-        })
-    end)
-
-    -- Backdrop — dark with gold edge, matches BNC's panel style
-    f:SetBackdrop({
-        bgFile   = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        tile     = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+    -- BazCore handles the Blizzard-styled chrome (PortraitFrameFlatTemplate)
+    -- including title bar, portrait, close button, drag, and ESC-close.
+    -- Anything bag-specific (search, sort, money, slots) we add ourselves.
+    frame = BazCore:CreatePortraitWindow("BazBagsFrame", {
+        title          = "BazBags",
+        portrait       = 5160585,  -- inv_misc_bag_horadricsatchel
+        width          = panelW,
+        height         = 400,
+        savedAddon     = addon,
+        savedKey       = "position",
+        uiSpecialFrame = true,
     })
-    f:SetBackdropColor(0, 0, 0, 0.92)
-    f:SetBackdropBorderColor(0.6, 0.5, 0.2)
 
-    -- Title bar — addon icon on the left, gold "BazBags" centered,
-    -- thin separator line beneath. Visually distinct from Blizzard's
-    -- combined bag title so you always know which UI you're in.
-    f.titleIcon = f:CreateTexture(nil, "OVERLAY")
-    f.titleIcon:SetSize(20, 20)
-    f.titleIcon:SetPoint("TOPLEFT", 8, -6)
-    f.titleIcon:SetTexture(5160585)  -- inv_misc_bag_horadricsatchel
-    f.titleIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.title:SetPoint("TOP", 0, -8)
-    f.title:SetText("BazBags")
-    f.title:SetTextColor(1.00, 0.82, 0.00)  -- Baz suite gold
-
-    f.titleSep = f:CreateTexture(nil, "ARTWORK")
-    f.titleSep:SetHeight(1)
-    f.titleSep:SetPoint("TOPLEFT",  f, "TOPLEFT",  10, -TITLE_BAR_H + 1)
-    f.titleSep:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -TITLE_BAR_H + 1)
-    f.titleSep:SetColorTexture(0.6, 0.5, 0.2, 0.6)
-
-    -- Close button
-    f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    f.close:SetPoint("TOPRIGHT", -2, -2)
-    f.close:SetScript("OnClick", function() Bag:Hide() end)
-
-    -- Sort button (bottom-left of footer)
-    f.sort = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    f.sort:SetSize(60, 22)
-    f.sort:SetPoint("BOTTOMLEFT", 8, 6)
-    f.sort:SetText("Sort")
-    f.sort:SetScript("OnClick", function()
+    -- Auto-sort button — Blizzard atlases, exact UX match.
+    frame.sort = CreateFrame("Button", nil, frame)
+    frame.sort:SetSize(28, 26)
+    frame.sort:SetNormalAtlas("bags-button-autosort-up")
+    frame.sort:SetPushedAtlas("bags-button-autosort-down")
+    frame.sort:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    frame.sort:SetPoint("TOPRIGHT", -28, -27)
+    frame.sort:SetScript("OnClick", function()
+        if SOUNDKIT and SOUNDKIT.UI_BAG_SORTING_01 then
+            PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
+        end
         if C_Container and C_Container.SortBags then
             C_Container.SortBags()
         end
     end)
+    frame.sort:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self)
+        GameTooltip_SetTitle(GameTooltip, BAG_CLEANUP_BAGS or "Clean Up Bags", HIGHLIGHT_FONT_COLOR)
+        if BAG_CLEANUP_BAGS_DESCRIPTION then
+            GameTooltip_AddNormalLine(GameTooltip, BAG_CLEANUP_BAGS_DESCRIPTION)
+        end
+        GameTooltip:Show()
+    end)
+    frame.sort:SetScript("OnLeave", GameTooltip_Hide)
 
-    -- Free / total slots indicator (bottom-right of footer)
-    f.status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.status:SetPoint("BOTTOMRIGHT", -10, 12)
+    -- Search box — Blizzard's BagSearchBoxTemplate handles the icon,
+    -- placeholder text, focus/blur visuals, and live filtering of
+    -- ContainerFrameItemButton instances via SetMatchesSearch.
+    frame.search = CreateFrame("EditBox", nil, frame, "BagSearchBoxTemplate")
+    frame.search:SetSize(panelW - 100, 18)
+    frame.search:SetPoint("TOPLEFT", 62, -36)
+    frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
 
-    -- ESC closes
-    tinsert(UISpecialFrames, "BazBagsFrame")
+    -- Money frame — Blizzard's exact gold/silver/copper readout.
+    frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
+    frame.money:SetPoint("BOTTOMRIGHT", -10, 8)
 
-    frame = f
+    -- Footer status (free / total slots)
+    frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.status:SetPoint("BOTTOMLEFT", 12, 14)
 
-    -- Build sections after the panel exists
+    -- Build sections
     for _, def in ipairs(SECTIONS) do
         sections[def.key] = BuildSection(def)
     end
 
-    return f
+    return frame
 end
 
 ---------------------------------------------------------------------------
--- Slot rendering
----------------------------------------------------------------------------
-
-local function RenderSlot(btn, bagID, slotID)
-    local info = C_Container and C_Container.GetContainerItemInfo
-        and C_Container.GetContainerItemInfo(bagID, slotID) or nil
-
-    if info and info.iconFileID then
-        SetItemButtonTexture(btn, info.iconFileID)
-        SetItemButtonCount(btn, info.stackCount or 1)
-        SetItemButtonQuality(btn, info.quality, info.hyperlink)
-        SetItemButtonDesaturated(btn, info.isLocked)
-    else
-        SetItemButtonTexture(btn, "")
-        SetItemButtonCount(btn, 0)
-        SetItemButtonQuality(btn, 0)
-        SetItemButtonDesaturated(btn, false)
-    end
-
-    -- Cooldown
-    if btn.Cooldown then
-        local cd = C_Container.GetContainerItemCooldown
-            and { C_Container.GetContainerItemCooldown(bagID, slotID) } or nil
-        if cd and cd[1] then
-            CooldownFrame_Set(btn.Cooldown, cd[1], cd[2], cd[3])
-        else
-            btn.Cooldown:Hide()
-        end
-    end
-end
-
----------------------------------------------------------------------------
--- Refresh — primary layout + content update
+-- Refresh
 ---------------------------------------------------------------------------
 
 function Bag:Refresh()
     if not frame then return end
 
-    local y = -TITLE_BAR_H
+    local y = -TOP_PAD
 
     for _, def in ipairs(SECTIONS) do
         local section = sections[def.key]
         local collapsed = IsCollapsed(def.key)
 
-        -- Header positioning
+        -- Header
         section.header:ClearAllPoints()
-        section.header:SetPoint("TOPLEFT",  frame, "TOPLEFT",  PANEL_PAD, y)
-        section.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PANEL_PAD, y)
+        section.header:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
+        section.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
         section.toggle:SetTexture(collapsed
             and "Interface\\Buttons\\UI-PlusButton-Up"
             or  "Interface\\Buttons\\UI-MinusButton-Up")
-        y = y - SECTION_HEADER_H
+        y = y - SECTION_HEADER_H - 2
 
-        -- Body — collect this section's (bag, slot) pairs in order
+        -- Collect (bag, slot) pairs
         local pairs_list = {}
         for _, bagID in ipairs(def.bagIDs) do
-            local n = (C_Container and C_Container.GetContainerNumSlots
-                       and C_Container.GetContainerNumSlots(bagID)) or 0
+            local n = C_Container.GetContainerNumSlots(bagID) or 0
             for slotID = 1, n do
                 pairs_list[#pairs_list + 1] = { bagID = bagID, slotID = slotID }
             end
         end
 
-        -- Section count text e.g. "16 / 24"
-        local total = 0
-        local free  = 0
+        -- Section count e.g. "3 / 24"
+        local total, free = 0, 0
         for _, bagID in ipairs(def.bagIDs) do
-            free  = free  + ((C_Container and C_Container.GetContainerNumFreeSlots
-                              and C_Container.GetContainerNumFreeSlots(bagID)) or 0)
-            total = total + ((C_Container and C_Container.GetContainerNumSlots
-                              and C_Container.GetContainerNumSlots(bagID)) or 0)
+            free  = free  + (C_Container.GetContainerNumFreeSlots(bagID) or 0)
+            total = total + (C_Container.GetContainerNumSlots(bagID) or 0)
         end
         section.count:SetText(string.format("|cff999999%d / %d|r", total - free, total))
 
-        -- Layout the slot buttons in a grid inside the body
-        local rows = math.ceil(#pairs_list / COLS)
-        local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_GAP
+        -- Body layout
+        local rows  = math.ceil(#pairs_list / COLS)
+        local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
         if collapsed then bodyH = 0 end
 
         section.body:ClearAllPoints()
-        section.body:SetPoint("TOPLEFT",  frame, "TOPLEFT",  PANEL_PAD,  y)
-        section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PANEL_PAD, y)
+        section.body:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
+        section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
         section.body:SetHeight(math.max(bodyH, 0.001))
 
         for i, p in ipairs(pairs_list) do
@@ -350,24 +341,23 @@ function Bag:Refresh()
                 btn:Hide()
             else
                 btn:SetPoint("TOPLEFT", section.body, "TOPLEFT",
-                    col * (SLOT_SIZE + SLOT_GAP),
-                    -row * (SLOT_SIZE + SLOT_GAP))
+                    col * (SLOT_SIZE + SLOT_SPACING_X),
+                    -row * (SLOT_SIZE + SLOT_SPACING_Y))
                 btn:Show()
-                RenderSlot(btn, p.bagID, p.slotID)
+                UpdateSlot(btn, p.bagID, p.slotID)
             end
         end
 
         if not collapsed then
-            y = y - bodyH - 6  -- small gap below body
+            y = y - bodyH - 8
         else
             y = y - 4
         end
     end
 
-    -- Hide stale buttons (e.g. if a bag was unequipped and is smaller now)
+    -- Hide stale buttons (bag was unequipped / smaller now)
     for bagID, slots in pairs(slotButtons) do
-        local n = (C_Container and C_Container.GetContainerNumSlots
-                   and C_Container.GetContainerNumSlots(bagID)) or 0
+        local n = C_Container.GetContainerNumSlots(bagID) or 0
         for slotID, btn in pairs(slots) do
             if slotID > n then
                 btn:Hide()
@@ -376,21 +366,24 @@ function Bag:Refresh()
         end
     end
 
-    -- Total panel height: title + sections + footer
-    local totalH = math.abs(y) + FOOTER_H
-    frame:SetHeight(totalH)
+    -- Resize panel to fit
+    frame:SetHeight(math.abs(y) + BOTTOM_PAD)
 
-    -- Footer status
+    -- Footer status: free / total across the whole bag
     local totalFree, totalSlots = 0, 0
     for _, def in ipairs(SECTIONS) do
         for _, bagID in ipairs(def.bagIDs) do
-            totalFree  = totalFree  + ((C_Container and C_Container.GetContainerNumFreeSlots
-                                         and C_Container.GetContainerNumFreeSlots(bagID)) or 0)
-            totalSlots = totalSlots + ((C_Container and C_Container.GetContainerNumSlots
-                                         and C_Container.GetContainerNumSlots(bagID)) or 0)
+            totalFree  = totalFree  + (C_Container.GetContainerNumFreeSlots(bagID) or 0)
+            totalSlots = totalSlots + (C_Container.GetContainerNumSlots(bagID) or 0)
         end
     end
     frame.status:SetText(string.format("%d / %d slots", totalSlots - totalFree, totalSlots))
+
+    -- Money frame refresh — Blizzard updates this on MoneyTypeInfo events
+    -- but we kick it on each refresh too in case events were missed.
+    if frame.money and MoneyFrame_Update then
+        MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -418,7 +411,7 @@ function Bag:Toggle()
 end
 
 ---------------------------------------------------------------------------
--- Event-driven refresh (coalesced)
+-- Event-driven refresh (coalesced to one Refresh per frame)
 ---------------------------------------------------------------------------
 
 local function ScheduleRefresh()
@@ -437,15 +430,6 @@ events:RegisterEvent("BAG_UPDATE")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
 events:RegisterEvent("BAG_UPDATE_COOLDOWN")
 events:RegisterEvent("ITEM_LOCK_CHANGED")
+events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent", ScheduleRefresh)
-
----------------------------------------------------------------------------
--- Init
----------------------------------------------------------------------------
-
-BazCore:QueueForLogin(function()
-    -- Build lazily — frame is created on first Toggle/Show. We could
-    -- pre-build here for instant first-show but that wastes memory if
-    -- the user never opens the panel.
-end)

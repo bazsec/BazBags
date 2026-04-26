@@ -123,7 +123,13 @@ end
 
 local function GetOrCreateBagContext(bagID)
     if bagContexts[bagID] then return bagContexts[bagID] end
-    local f = CreateFrame("Frame", nil, frame)
+    -- Parent to scrollChild (when it exists) so slot buttons live
+    -- inside the scroll hierarchy and get clipped + translated when
+    -- the panel scrolls. Falls back to frame for the (vanishingly
+    -- small) window between BuildFrame's first lines and the scroll
+    -- frame's creation.
+    local parent = (frame and frame.scrollChild) or frame
+    local f = CreateFrame("Frame", nil, parent)
     f:SetID(bagID)
     f:SetSize(1, 1)
     -- Blizzard's slot Initialize checks this to add the combined-bag bg.
@@ -199,7 +205,12 @@ end
 local function BuildSection(def)
     local section = { def = def }
 
-    local header = CreateFrame("Button", nil, frame)
+    -- Sections live inside scrollChild so they scroll with the rest of
+    -- the bag content. Falls back to frame in the unlikely case the
+    -- scroll frame isn't built yet.
+    local parent = (frame and frame.scrollChild) or frame
+
+    local header = CreateFrame("Button", nil, parent)
     header:SetHeight(SECTION_HEADER_H)
     section.header = header
 
@@ -231,7 +242,7 @@ local function BuildSection(def)
     end)
 
     -- Body holds the slot buttons. Height is computed in Refresh().
-    local body = CreateFrame("Frame", nil, frame)
+    local body = CreateFrame("Frame", nil, parent)
     section.body = body
 
     return section
@@ -338,6 +349,35 @@ local function BuildFrame()
     -- token row when currencies are visible, or alone at the bottom
     -- when there are none.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
+
+    -- Scroll container for the bag content (sections, dividers, slots).
+    -- All content anchors to scrollChild so when the player has more
+    -- items than the maxHeight setting allows, scrollFrame clips the
+    -- overflow and the mouse wheel handler shifts the visible slice.
+    -- Positioned between the search bar (top chrome) and the
+    -- money/tokens row (bottom chrome) — its exact height is
+    -- recomputed every Refresh. We deliberately use a bare ScrollFrame
+    -- without a scrollbar template (Blizzard's modern minimal scrollbar
+    -- is wired to ScrollBox, not plain ScrollFrame) and rely on the
+    -- mouse wheel for scrolling.
+    local sf = CreateFrame("ScrollFrame", nil, frame)
+    sf:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD, -TOP_PAD)
+    sf:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, -TOP_PAD)
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(self, delta)
+        if (self.bazMaxScroll or 0) <= 0 then return end
+        local cur = self:GetVerticalScroll() or 0
+        local next = cur - delta * 30
+        if next < 0 then next = 0 end
+        if next > self.bazMaxScroll then next = self.bazMaxScroll end
+        self:SetVerticalScroll(next)
+    end)
+    frame.scrollFrame = sf
+
+    local sc = CreateFrame("Frame", nil, sf)
+    sc:SetSize(1, 1)  -- resized per refresh; width tracks scrollFrame
+    sf:SetScrollChild(sc)
+    frame.scrollChild = sc
 
     -- Build sections
     for _, def in ipairs(SECTIONS) do
@@ -845,7 +885,18 @@ function Bag:Refresh()
         end
     end
 
-    local y = -TOP_PAD
+    -- Width the inner content gets — match scrollChild to scrollFrame.
+    -- ScrollFrame's width comes from its TOPLEFT/TOPRIGHT anchors
+    -- (= frame width minus the two SIDE_PADs), so we read it back
+    -- rather than recomputing.
+    if frame.scrollChild and frame.scrollFrame then
+        frame.scrollChild:SetWidth(frame.scrollFrame:GetWidth() or 1)
+    end
+
+    -- Content y-cursor starts at 0 (top of scrollChild) instead of
+    -- -TOP_PAD relative to frame — the chrome lives outside the
+    -- scroll area now.
+    local y = 0
 
     -- Dispatch to the appropriate layout. Bag mode renders the static
     -- bag/reagent sections inline (kept here because it's the simple
@@ -865,13 +916,15 @@ function Bag:Refresh()
         end
 
         y = addon.Layouts.Render({
-            frame                 = frame,
+            -- Layouts anchor relative to scrollChild now so the bag
+            -- content scrolls cleanly when content > maxHeight.
+            frame                 = frame.scrollChild or frame,
             cols                  = cols,
             SLOT_SIZE             = SLOT_SIZE,
             SLOT_SPACING_X        = SLOT_SPACING_X,
             SLOT_SPACING_Y        = SLOT_SPACING_Y,
-            SIDE_PAD              = SIDE_PAD,
-            TOP_PAD               = TOP_PAD,
+            SIDE_PAD              = 0,   -- scrollChild already has the side pad applied
+            TOP_PAD               = 0,   -- scrollChild already starts below the chrome
             IsCollapsed           = IsCollapsed,
             SetCollapsed          = SetCollapsed,
             GetOrCreateSlotButton = GetOrCreateSlotButton,
@@ -885,14 +938,15 @@ function Bag:Refresh()
             addon.Layouts.HideAll()
         end
         -- One section per bag type with the existing collapse / count chrome.
+        local anchor = frame.scrollChild or frame
         for _, def in ipairs(SECTIONS) do
             local section = sections[def.key]
             local collapsed = IsCollapsed(def.key)
 
             -- Header
             section.header:ClearAllPoints()
-            section.header:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
-            section.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
+            section.header:SetPoint("TOPLEFT",  anchor, "TOPLEFT",  0, y)
+            section.header:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, y)
             section.toggle:SetTexture(collapsed
                 and "Interface\\Buttons\\UI-PlusButton-Up"
                 or  "Interface\\Buttons\\UI-MinusButton-Up")
@@ -931,8 +985,8 @@ function Bag:Refresh()
             if collapsed then bodyH = 0 end
 
             section.body:ClearAllPoints()
-            section.body:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
-            section.body:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
+            section.body:SetPoint("TOPLEFT",  anchor, "TOPLEFT",  0, y)
+            section.body:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, y)
             section.body:SetHeight(math.max(bodyH, 0.001))
             section.body:Show()
 
@@ -964,12 +1018,34 @@ function Bag:Refresh()
     -- Set the panel height once we've laid the footer below.
     local showMoney  = addon:GetSetting("showMoney")  ~= false
     local showTokens = addon:GetSetting("showTokens") ~= false
-    -- Provisional placeholder; the real bottom pad depends on token
-    -- row count which we compute below. We'll re-set the panel
-    -- height after that's known.
     local provisional = (showMoney and 1 or 0) + (showTokens and 1 or 0)
     local bottomPad   = (provisional == 0) and 12 or 36
-    frame:SetHeight(math.abs(y) + bottomPad)
+
+    -- Cap the scroll area's height at the user's maxHeight setting.
+    -- Anything taller scrolls; anything shorter just shrinks the panel
+    -- to fit. Default 600 ≈ 12-15 typical rows.
+    local contentH = math.abs(y)
+    local maxH     = addon:GetSetting("maxHeight") or 600
+    local scrollH  = math.min(contentH, maxH)
+
+    if frame.scrollChild then
+        frame.scrollChild:SetHeight(math.max(contentH, 1))
+    end
+    if frame.scrollFrame then
+        frame.scrollFrame:SetHeight(math.max(scrollH, 1))
+        frame.scrollFrame.bazMaxScroll = math.max(0, contentH - scrollH)
+        -- Clamp current scroll so it never points past the new content
+        -- height (e.g. user emptied the bag while scrolled to bottom).
+        local cur = frame.scrollFrame:GetVerticalScroll() or 0
+        if cur > frame.scrollFrame.bazMaxScroll then
+            frame.scrollFrame:SetVerticalScroll(frame.scrollFrame.bazMaxScroll)
+        end
+    end
+
+    -- Frame height = top chrome (search/sort) + scroll area + bottom
+    -- chrome (money/tokens). Token-row growth adds onto this below
+    -- so multi-row currency strips don't get clipped.
+    frame:SetHeight(TOP_PAD + scrollH + bottomPad)
 
     -- Title — toggle between BazBags and Blizzard's default.
     if frame.SetTitle then

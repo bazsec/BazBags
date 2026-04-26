@@ -30,6 +30,19 @@ A lightweight unified bag panel for World of Warcraft. All bags + the reagent ba
 
 ***
 
+## Roadmap
+
+Planned for upcoming releases:
+
+*   **Item categories** — auto-grouped sections for *Equipment*, *Consumables*, *Trade Goods*, *Quest*, *Junk*, etc., layered on top of the existing per-bag-type sections so you can choose to view by bag or by category
+*   **Search bar** — fuzzy match item names, gray out non-matches
+*   **Bank panel** — same collapsible-section design, opens at the bank
+*   **Per-equipped-bag sections** as an optional alternative to the merged "Bags" section, for people who specifically want to see each container separately
+
+The guiding principle stays the same: small footprint, native item buttons, no auto-magic that fights you.
+
+***
+
 ## Compatibility
 
 *   **WoW Version:** Retail 12.0 (Midnight)

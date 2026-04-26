@@ -285,13 +285,12 @@ local function BuildFrame()
     frame.search:SetPoint("TOPLEFT", 62, -37)               -- Blizzard's exact anchor
     frame.search:SetPoint("RIGHT", frame.sort, "LEFT", -4, 0)
 
-    -- Money frame — Blizzard's exact gold/silver/copper readout. The
-    -- template carries its own gold-trimmed backdrop that draws past
-    -- our panel border at a tight anchor, so we inset further from
-    -- the panel edge than the typical 10px to keep both borders clear
-    -- of each other.
+    -- Money frame — Blizzard's exact gold/silver/copper readout.
+    -- Inset symmetrically from the BOTTOMRIGHT corner of the panel
+    -- so the visual gap to the right edge matches the gap to the
+    -- bottom edge (both 12 px).
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
-    frame.money:SetPoint("BOTTOMRIGHT", -22, 14)
+    frame.money:SetPoint("BOTTOMRIGHT", -12, 12)
 
     -- Footer status (free / total slots)
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -470,7 +469,12 @@ function Bag:Refresh()
                 local L = leftButton:GetLeft()
                 local R = mf:GetRight()
                 if L and R and R > L then
-                    mf:SetWidth(R - L + 8)  -- + small symmetric padding
+                    -- +13 matches the right-side inset (Blizzard's
+                    -- copper anchor and our goldOnly gold anchor both
+                    -- use -13 from frame RIGHT for the border cap).
+                    -- Padding the LEFT by the same 13 keeps the inside
+                    -- of the gold border visually symmetric.
+                    mf:SetWidth(R - L + 13)
                 end
             end)
         end

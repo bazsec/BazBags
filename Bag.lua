@@ -1039,7 +1039,6 @@ function Bag:Refresh()
     -- bottomPad = 44 yields ~11 px of breathing room above the
     -- currency strip — earlier 30 left only ~1 px and the items above
     -- looked like they were stacked right on top of the strip.
-    local showMoney  = addon:GetSetting("showMoney")  ~= false
     local showTokens = addon:GetSetting("showTokens") ~= false
     local bottomPad  = showTokens and 44 or 12
 
@@ -1093,7 +1092,17 @@ function Bag:Refresh()
         local totalH     = rowCount * rowHeight + math.max(0, rowCount - 1) * TOKEN_ROW_GAP
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()
-        frame.tokens:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+        -- Currency strip alignment — left, center, or right edge of the
+        -- panel. Internal token packing (right-to-left within each row)
+        -- doesn't change; only the strip's anchor point on the panel.
+        local align = addon:GetSetting("tokenAlignment") or "right"
+        if align == "left" then
+            frame.tokens:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 12)
+        elseif align == "center" then
+            frame.tokens:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+        else
+            frame.tokens:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
+        end
         frame.tokens:SetWidth(maxRowW)
         frame.tokens:SetHeight(totalH)
 
@@ -1112,20 +1121,23 @@ function Bag:Refresh()
     -- gold-only state — its position never changes. Width auto-fits
     -- visible content via the deferred SetWidth at the end so the
     -- search bar (anchored to money's LEFT) shrinks/grows in lock-step.
+    -- The "Show Money" toggle was removed in favour of always showing
+    -- gold; with the money frame in the top-right corner there's no
+    -- vertical real estate to reclaim by hiding it.
     if frame.money then
-        if not showMoney then
-            frame.money:Hide()
-        else
+        do
             frame.money:Show()
 
             if MoneyFrame_Update then
-                -- Triggers our hooksecurefunc, which calls ApplyMoneyState
-                -- after Blizzard's logic — so silver/copper visibility
-                -- and the gold anchor always reflect the saved setting.
                 MoneyFrame_Update(frame.money:GetName() or frame.money, GetMoney())
-            else
-                ApplyMoneyState(frame.money)
             end
+            -- Always re-apply our gold-only state. The hooksecurefunc on
+            -- MoneyFrame_UpdateMoney catches event-driven refreshes
+            -- (PLAYER_MONEY etc.) but Refresh calls MoneyFrame_Update
+            -- directly, which doesn't go through UpdateMoney — so
+            -- without this explicit call the Gold Only toggle had no
+            -- effect when triggered from the Settings page.
+            ApplyMoneyState(frame.money)
 
             -- Tighten the frame width to fit visible content. See the
             -- detailed comment block elsewhere — MoneyFrame_Update's

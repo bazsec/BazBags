@@ -41,10 +41,11 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         -- than the built-in "tradegoods".
         itemCategories = {},
 
-        -- Footer
-        showMoney       = true,   -- gold/silver/copper row at the bottom
-        showTokens      = true,   -- tracked-currency (green) row below the money
+        -- Money & Currency
+        showTokens      = true,   -- tracked-currency (green) row at the bottom
         goldOnly        = false,  -- hide silver + copper in the money display
+        tokenAlignment  = "right", -- "left" | "center" | "right" — which edge
+                                   -- the tracked-currency strip hugs
         useDefaultTitle = false,  -- show "Combined Backpack" instead of "BazBags"
 
         -- Section collapse state. Per-section, persisted across
@@ -222,19 +223,19 @@ local function GetSettingsPage()
                 end,
             },
 
-            footerHeader = {
+            moneyHeader = {
                 order = 10,
                 type  = "header",
-                name  = "Footer",
+                name  = "Money & Currency",
             },
-            showMoney = {
+            goldOnly = {
                 order = 11,
                 type  = "toggle",
-                name  = "Show Money",
-                desc  = "Show your gold / silver / copper at the bottom of the panel.",
-                get   = function() return addon:GetSetting("showMoney") ~= false end,
+                name  = "Gold Only",
+                desc  = "Hide silver and copper in the gold display next to the search bar — keeps just the gold total. Useful at high gold totals where the silver/copper digits add visual noise.",
+                get   = function() return addon:GetSetting("goldOnly") and true or false end,
                 set   = function(_, val)
-                    addon:SetSetting("showMoney", val and true or false)
+                    addon:SetSetting("goldOnly", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },
@@ -242,24 +243,29 @@ local function GetSettingsPage()
                 order = 12,
                 type  = "toggle",
                 name  = "Show Currency Tracker",
-                desc  = "Show the tracked-currency row (green box) below the money. The list of currencies is whatever you've marked as \"Show on Backpack\" in Blizzard's Currency UI.",
+                desc  = "Show the tracked-currency strip (green box) at the bottom of the panel. The list of currencies is whatever you've marked as \"Show on Backpack\" in Blizzard's Currency UI.",
                 get   = function() return addon:GetSetting("showTokens") ~= false end,
                 set   = function(_, val)
                     addon:SetSetting("showTokens", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },
-            goldOnly = {
+            tokenAlignment = {
                 order = 13,
-                type  = "toggle",
-                name  = "Gold Only",
-                desc  = "Show only your gold count in the money row; hide silver and copper. Useful at high gold totals where the silver/copper digits add visual noise.",
-                get   = function() return addon:GetSetting("goldOnly") and true or false end,
-                set   = function(_, val)
-                    addon:SetSetting("goldOnly", val and true or false)
+                type  = "select",
+                name  = "Currency Alignment",
+                desc  = "Which edge the tracked-currency strip hugs at the bottom of the panel.",
+                values = {
+                    left   = "Left",
+                    center = "Center",
+                    right  = "Right",
+                },
+                get = function() return addon:GetSetting("tokenAlignment") or "right" end,
+                set = function(_, val)
+                    addon:SetSetting("tokenAlignment", val)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
-                disabled = function() return addon:GetSetting("showMoney") == false end,
+                disabled = function() return addon:GetSetting("showTokens") == false end,
             },
         },
     }

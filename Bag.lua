@@ -338,17 +338,19 @@ local function BuildFrame()
     frame.search:SetPoint("RIGHT", frame.money, "LEFT", -8, 0)
 
     -- Match the money frame's gold-coinbox border height to the
-    -- search bar so they read as the same row of chrome.
+    -- search bar (plus 1 px) so the chrome reads as the same row,
+    -- with the gold border just barely taller — pure-flat search bar
+    -- looks slightly shorter than the textured coinbox at equal
+    -- heights, and 1 px makes the optical illusion balance out.
     -- ContainerMoneyFrameTemplate's Border child is
     -- ContainerFrameCurrencyBorderTemplate at a fixed y=17 with 8x17
-    -- Left/Right cap textures and a stretching Middle. Search bar is
-    -- 18 — lift the border + its caps to match.
-    local searchH = frame.search:GetHeight() or 18
-    frame.money:SetHeight(searchH)
+    -- Left/Right cap textures and a stretching Middle.
+    local moneyH = (frame.search:GetHeight() or 18) + 1
+    frame.money:SetHeight(moneyH)
     if frame.money.Border then
-        frame.money.Border:SetHeight(searchH)
-        if frame.money.Border.Left  then frame.money.Border.Left:SetHeight(searchH)  end
-        if frame.money.Border.Right then frame.money.Border.Right:SetHeight(searchH) end
+        frame.money.Border:SetHeight(moneyH)
+        if frame.money.Border.Left  then frame.money.Border.Left:SetHeight(moneyH)  end
+        if frame.money.Border.Right then frame.money.Border.Right:SetHeight(moneyH) end
         -- Middle anchors TOPLEFT/BOTTOMRIGHT to Left/Right corners, so
         -- it stretches automatically to fill the new height.
     end

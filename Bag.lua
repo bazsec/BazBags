@@ -1012,12 +1012,18 @@ function Bag:Refresh()
     end
 
     -- Compute bottom padding. The money frame lives in the top-right
-    -- chrome now, so it doesn't contribute to the bottom anymore —
-    -- only tokens (the green tracked-currency strip) does. When tokens
-    -- aren't visible we just need the standard outer margin.
+    -- chrome now, so only tokens (the green tracked-currency strip)
+    -- contribute to the bottom area.
+    --
+    -- Math for the tokens case (token height ~17, anchored 12 px from
+    -- frame bottom, divider sits 3 px below the scroll area):
+    --   gap between divider and tokens top = bottomPad - 33
+    -- bottomPad = 44 yields ~11 px of breathing room above the
+    -- currency strip — earlier 30 left only ~1 px and the items above
+    -- looked like they were stacked right on top of the strip.
     local showMoney  = addon:GetSetting("showMoney")  ~= false
     local showTokens = addon:GetSetting("showTokens") ~= false
-    local bottomPad  = showTokens and 30 or 12
+    local bottomPad  = showTokens and 44 or 12
 
     -- Cap the scroll area's height at the user's maxHeight setting.
     -- Anything taller scrolls; anything shorter just shrinks the panel

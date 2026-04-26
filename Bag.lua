@@ -289,37 +289,14 @@ local function BuildFrame()
     -- below the money row. Mirrors Blizzard's BackpackTokenFrame
     -- visually but built ourselves so we don't fight Blizzard for
     -- ownership of the singleton BackpackTokenFrame instance.
+    -- Tracked-currency container. Holds an array of "row frames" —
+    -- each row is its own green-bordered pill with its own tokens.
+    -- When the user watches more currencies than fit on a single
+    -- row, additional rows are added above so we can carry as many
+    -- as they like without spilling off the side of the panel.
     frame.tokens = CreateFrame("Frame", nil, frame)
-    -- Final size + position is set in Refresh() — height matches the
-    -- money frame so the two rows feel like a pair, width sizes to
-    -- the visible entries.
-
-    frame.tokens.border = CreateFrame("Frame", nil, frame.tokens, "ContainerFrameCurrencyBorderTemplate")
-    frame.tokens.border.leftEdge   = "common-currencybox-left"
-    frame.tokens.border.rightEdge  = "common-currencybox-right"
-    frame.tokens.border.centerEdge = "_common-currencybox-center"
-    frame.tokens.border:SetPoint("LEFT")
-    frame.tokens.border:SetPoint("RIGHT")
-    -- Invoke the template's OnLoad manually so the three border
-    -- pieces pick up our green-currency atlases (template only
-    -- reads .leftEdge/.rightEdge/.centerEdge from KeyValues at OnLoad).
-    if ContainerFrameCurrencyBorderMixin and ContainerFrameCurrencyBorderMixin.OnLoad then
-        ContainerFrameCurrencyBorderMixin.OnLoad(frame.tokens.border)
-    end
-
-    -- Click anywhere on the row → open Blizzard's full TokenFrame
-    -- (where the user manages "Show on Backpack" per currency).
-    frame.tokens:EnableMouse(true)
-    frame.tokens:SetScript("OnMouseDown", function()
-        if CharacterFrame and CharacterFrame.ToggleTokenFrame then
-            CharacterFrame:ToggleTokenFrame()
-        end
-    end)
-
-    -- Pool of per-currency entries (count text + icon). Sized to
-    -- match BackpackTokenTemplate (50 x 12) so a row of them at the
-    -- panel's bottom looks identical to Blizzard's.
-    frame.tokens.entries = {}
+    frame.tokens.rows    = {}   -- array of row frames (built lazily)
+    frame.tokens.entries = {}   -- flat pool of per-currency entries
 
     -- Money frame — Blizzard's exact gold/silver/copper readout.
     -- Position is set in Refresh() so we can stack it above the
@@ -406,16 +383,52 @@ local function GetOrCreateTokenEntry(parent, idx)
     return btn
 end
 
--- Returns (visibleCount, totalContentWidth) — totalContentWidth
--- is the sum of each entry's actual width plus the gaps between
--- them, so the caller can size frame.tokens precisely.
-local function UpdateTokens()
+local TOKEN_ROW_GAP    = 4    -- vertical gap between stacked token rows
+local TOKEN_ROW_HEIGHT = nil  -- set in UpdateTokens to match money height
+
+-- Build (or fetch) a row frame — its own green-bordered pill that
+-- can hold a horizontal strip of token entries.
+local function GetOrCreateTokenRow(parent, idx)
+    if parent.rows[idx] then return parent.rows[idx] end
+
+    local row = CreateFrame("Frame", nil, parent)
+    row.entries = {}
+
+    row.border = CreateFrame("Frame", nil, row, "ContainerFrameCurrencyBorderTemplate")
+    row.border.leftEdge   = "common-currencybox-left"
+    row.border.rightEdge  = "common-currencybox-right"
+    row.border.centerEdge = "_common-currencybox-center"
+    row.border:SetPoint("LEFT")
+    row.border:SetPoint("RIGHT")
+    if ContainerFrameCurrencyBorderMixin and ContainerFrameCurrencyBorderMixin.OnLoad then
+        ContainerFrameCurrencyBorderMixin.OnLoad(row.border)
+    end
+
+    -- Click anywhere on a row → open Blizzard's TokenFrame for
+    -- managing Show on Backpack.
+    row:EnableMouse(true)
+    row:SetScript("OnMouseDown", function()
+        if CharacterFrame and CharacterFrame.ToggleTokenFrame then
+            CharacterFrame:ToggleTokenFrame()
+        end
+    end)
+
+    parent.rows[idx] = row
+    return row
+end
+
+-- Build / refresh / size every entry, then pack them into rows
+-- (right-to-left, top to bottom). Returns (rowCount, maxRowWidth)
+-- so the caller can size the parent token frame.
+local function UpdateTokens(maxRowWidth)
     if not frame or not frame.tokens then return 0, 0 end
+    if not maxRowWidth or maxRowWidth <= 0 then maxRowWidth = 200 end
 
     local tokens = frame.tokens
-    local visible = 0
 
-    for i = 1, 30 do  -- ample upper bound; loop breaks at first nil
+    -- Step 1: build / refresh entries, sized to text content
+    local visible = 0
+    for i = 1, 50 do  -- ample upper bound; loop breaks at first nil
         local info = C_CurrencyInfo and C_CurrencyInfo.GetBackpackCurrencyInfo
             and C_CurrencyInfo.GetBackpackCurrencyInfo(i) or nil
         if not info then break end
@@ -427,37 +440,85 @@ local function UpdateTokens()
         btn.icon:SetTexture(info.iconFileID)
         btn.count:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(info.quantity or 0) or tostring(info.quantity or 0))
 
-        -- Size button to fit text + gap + icon. SetText must have
-        -- run before GetStringWidth so we read the resolved width.
         local textW = btn.count:GetStringWidth() or 0
         btn:SetWidth(textW + TOKEN_TEXT_ICON_GAP + TOKEN_ICON_SIZE)
         btn:Show()
     end
 
-    -- Hide trailing entries that aren't needed anymore
+    -- Hide trailing entries no longer in use
     for i = visible + 1, #tokens.entries do
         tokens.entries[i]:Hide()
     end
 
-    -- Layout entries right-to-left so they stack like coins.
-    -- entries[1] is the rightmost token (matches Blizzard's
-    -- TopRightToBottomLeft grid direction in BackpackTokenFrame).
-    -- Consistent TOKEN_GAP between every entry — even-spaced,
-    -- so short and long counts land in a visual rhythm.
-    local totalContentW = 0
-    for i = 1, visible do
-        local btn = tokens.entries[i]
-        btn:ClearAllPoints()
-        if i == 1 then
-            btn:SetPoint("RIGHT", tokens, "RIGHT", -TOKEN_RIGHT_PAD, 0)
-        else
-            btn:SetPoint("RIGHT", tokens.entries[i - 1], "LEFT", -TOKEN_GAP, 0)
-            totalContentW = totalContentW + TOKEN_GAP
-        end
-        totalContentW = totalContentW + (btn:GetWidth() or 0)
+    if visible == 0 then
+        -- Hide all rows
+        for _, row in ipairs(tokens.rows) do row:Hide() end
+        return 0, 0
     end
 
-    return visible, totalContentW
+    -- Step 2: greedy-pack entries into rows, right-to-left.
+    -- Row 0 is the bottom-most row; if a row fills up, overflow
+    -- entries go into row 1 (above), then row 2 (further above).
+    local rowAvail = maxRowWidth - TOKEN_LEFT_PAD - TOKEN_RIGHT_PAD
+    local rowAssignments = {}  -- [rowIdx] = { entryIdx, entryIdx, ... }
+    local rowWidths      = {}  -- [rowIdx] = current content width
+    local currentRow = 1
+    rowAssignments[currentRow] = {}
+    rowWidths[currentRow] = 0
+
+    for i = 1, visible do
+        local btn = tokens.entries[i]
+        local btnW = btn:GetWidth() or 0
+        local addedW = btnW + (#rowAssignments[currentRow] > 0 and TOKEN_GAP or 0)
+        if rowWidths[currentRow] + addedW > rowAvail and #rowAssignments[currentRow] > 0 then
+            -- Wrap to next row
+            currentRow = currentRow + 1
+            rowAssignments[currentRow] = {}
+            rowWidths[currentRow] = 0
+            addedW = btnW
+        end
+        table.insert(rowAssignments[currentRow], i)
+        rowWidths[currentRow] = rowWidths[currentRow] + addedW
+    end
+
+    local rowCount = currentRow
+    local rowHeight = TOKEN_ROW_HEIGHT or 17
+
+    -- Step 3: position each row and assign entries to it
+    -- Row 1 (the row containing the rightmost / first-fetched
+    -- currencies) sits at the BOTTOM. Additional rows stack upward.
+    local maxFullRowW = 0
+    for r = 1, rowCount do
+        local row = GetOrCreateTokenRow(tokens, r)
+        local fullW = rowWidths[r] + TOKEN_LEFT_PAD + TOKEN_RIGHT_PAD
+        if fullW > maxFullRowW then maxFullRowW = fullW end
+
+        row:Show()
+        row:SetSize(fullW, rowHeight)
+        row:ClearAllPoints()
+        row:SetPoint("BOTTOMRIGHT", tokens, "BOTTOMRIGHT", 0,
+            (r - 1) * (rowHeight + TOKEN_ROW_GAP))
+
+        -- Anchor this row's entries
+        for col, entryIdx in ipairs(rowAssignments[r]) do
+            local btn = tokens.entries[entryIdx]
+            btn:SetParent(row)
+            btn:ClearAllPoints()
+            if col == 1 then
+                btn:SetPoint("RIGHT", row, "RIGHT", -TOKEN_RIGHT_PAD, 0)
+            else
+                local prevIdx = rowAssignments[r][col - 1]
+                btn:SetPoint("RIGHT", tokens.entries[prevIdx], "LEFT", -TOKEN_GAP, 0)
+            end
+        end
+    end
+
+    -- Hide any extra row frames left over from a previous render
+    for r = rowCount + 1, #tokens.rows do
+        tokens.rows[r]:Hide()
+    end
+
+    return rowCount, maxFullRowW
 end
 
 ---------------------------------------------------------------------------
@@ -559,20 +620,16 @@ function Bag:Refresh()
         end
     end
 
-    -- Compute bottom padding based on which footer rows the user
-    -- has enabled. Both shown → room for two stacked rows. One
-    -- shown → one row. Neither → just panel border padding.
+    -- Compute bottom padding. Money is one row (~24 px). Tokens may
+    -- now be multiple rows so we have to look at the live frame.
+    -- Set the panel height once we've laid the footer below.
     local showMoney  = addon:GetSetting("showMoney")  ~= false
     local showTokens = addon:GetSetting("showTokens") ~= false
-    local visibleRows = (showMoney and 1 or 0) + (showTokens and 1 or 0)
-    local bottomPad
-    if visibleRows == 2 then
-        bottomPad = BOTTOM_PAD
-    elseif visibleRows == 1 then
-        bottomPad = 36
-    else
-        bottomPad = 12
-    end
+    -- Provisional placeholder; the real bottom pad depends on token
+    -- row count which we compute below. We'll re-set the panel
+    -- height after that's known.
+    local provisional = (showMoney and 1 or 0) + (showTokens and 1 or 0)
+    local bottomPad   = (provisional == 0) and 12 or 36
     frame:SetHeight(math.abs(y) + bottomPad)
 
     -- Title — toggle between BazBags and Blizzard's default.
@@ -583,22 +640,32 @@ function Bag:Refresh()
 
     -- Tracked currencies — only update + show if the user enabled
     -- the row AND has at least one currency marked Show on Backpack.
-    local tokenCount, contentW = 0, 0
+    -- We pass the available row width (panel width minus the same
+    -- 12 px outer padding) so UpdateTokens can pack entries into
+    -- multiple rows when the user is tracking more than fit on one.
+    local rowCount, maxRowW = 0, 0
     if showTokens then
-        tokenCount, contentW = UpdateTokens()
+        local available = (frame:GetWidth() or 0) - 24  -- 12 + 12 outer padding
+        TOKEN_ROW_HEIGHT = (frame.money and frame.money:GetHeight()) or 17
+        rowCount, maxRowW = UpdateTokens(available)
     end
-    local hasTokens = (tokenCount or 0) > 0
+    local hasTokens = (rowCount or 0) > 0
 
     if hasTokens then
-        -- Width = the actual content width returned by UpdateTokens
-        -- (sum of dynamically-sized entries + their gaps) plus the
-        -- two border-cap insets.
-        local totalW = (contentW or 0) + TOKEN_LEFT_PAD + TOKEN_RIGHT_PAD
-
+        local rowHeight  = TOKEN_ROW_HEIGHT or 17
+        local totalH     = rowCount * rowHeight + math.max(0, rowCount - 1) * TOKEN_ROW_GAP
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()
         frame.tokens:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
-        frame.tokens:SetWidth(totalW)
+        frame.tokens:SetWidth(maxRowW)
+        frame.tokens:SetHeight(totalH)
+
+        -- Re-grow panel height to fit additional token rows. Each
+        -- extra row beyond the first costs rowHeight + TOKEN_ROW_GAP.
+        if rowCount > 1 then
+            local extra = (rowCount - 1) * (rowHeight + TOKEN_ROW_GAP)
+            frame:SetHeight(frame:GetHeight() + extra)
+        end
     else
         frame.tokens:Hide()
     end
@@ -668,22 +735,6 @@ function Bag:Refresh()
             end
         end
 
-        -- Match the tokens row height to the money row height so the
-        -- two pill-shaped boxes feel like a coordinated pair. The
-        -- money frame's height is set by MoneyFrame_Update earlier
-        -- in this branch, so by here it's stable for this refresh.
-        if hasTokens and frame.money:IsShown() then
-            local h = frame.money:GetHeight()
-            if h and h > 0 then
-                frame.tokens:SetHeight(h)
-            end
-        end
-    end
-
-    -- Fallback height if money is hidden but tokens are shown. Use a
-    -- sensible default so the row still has presence.
-    if hasTokens and not frame.money:IsShown() then
-        frame.tokens:SetHeight(20)
     end
 end
 
@@ -794,3 +845,31 @@ local function HookBlizzardBagToggles()
 end
 
 BazCore:QueueForLogin(HookBlizzardBagToggles)
+
+---------------------------------------------------------------------------
+-- Bypass Blizzard's "TOO_MANY_WATCHED_TOKENS" cap.
+--
+-- Blizzard caps the number of currencies you can mark "Show on
+-- Backpack" via floor(BackpackTokenFrame.width / 50). Their bag is
+-- narrow so the cap is small. BazBags re-flows currencies into
+-- multiple rows so we don't actually need a cap at all — patch
+-- BackpackTokenFrame:GetMaxTokensWatched to return a huge number
+-- so the Currency UI never refuses a toggle.
+--
+-- The frame doesn't exist until Blizzard_TokenUI loads (it's load
+-- on demand). Force-load it, then patch.
+---------------------------------------------------------------------------
+
+local function PatchTokenCap()
+    if C_AddOns and C_AddOns.LoadAddOn then
+        C_AddOns.LoadAddOn("Blizzard_TokenUI")
+    elseif LoadAddOn then
+        LoadAddOn("Blizzard_TokenUI")
+    end
+
+    if BackpackTokenFrame and BackpackTokenFrame.GetMaxTokensWatched then
+        BackpackTokenFrame.GetMaxTokensWatched = function() return 999 end
+    end
+end
+
+BazCore:QueueForLogin(PatchTokenCap)

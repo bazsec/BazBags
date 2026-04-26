@@ -438,7 +438,12 @@ function Bag:Refresh()
         if frame.money.GoldButton then
             frame.money.GoldButton:ClearAllPoints()
             if goldOnly then
-                frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", 0, 0)
+                -- Match Blizzard's pattern for the rightmost coin button:
+                -- copperButton anchors at RIGHT,RIGHT,-13,0 in MoneyFrame_Update
+                -- (line 380). The 13 px right inset is the room the border's
+                -- decorative right cap takes — without it, the icon pokes out
+                -- past the visible inside edge of the gold border.
+                frame.money.GoldButton:SetPoint("RIGHT", frame.money, "RIGHT", -13, 0)
             elseif frame.money.SilverButton then
                 -- Restore the template's default anchor relationship
                 frame.money.GoldButton:SetPoint("RIGHT", frame.money.SilverButton, "LEFT", -4, 0)

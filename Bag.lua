@@ -320,6 +320,19 @@ local function BuildFrame()
     frame.tokens.rows    = {}   -- array of row frames (built lazily)
     frame.tokens.entries = {}   -- flat pool of per-currency entries
 
+    -- Solid-black layer behind the panel's translucent stock
+    -- background. PortraitFrameFlatTemplate's Bg uses
+    -- PANEL_BACKGROUND_COLOR which has built-in alpha (~0.7) — so
+    -- frame.Bg:SetAlpha(1) still reads as see-through. This extra
+    -- texture sits *under* frame.Bg at sub-level -1 so the dark
+    -- overlay still tints the panel, but at 100% opacity the result
+    -- is fully solid. Both layers scale together with the bgAlpha
+    -- setting (Refresh applies SetAlpha to both).
+    frame.solidBg = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
+    frame.solidBg:SetColorTexture(0, 0, 0, 1)
+    frame.solidBg:SetPoint("TOPLEFT",     2, -20)
+    frame.solidBg:SetPoint("BOTTOMRIGHT", -2, 3)
+
     -- Money frame — Blizzard's exact gold/silver/copper readout.
     -- Anchored where Blizzard's auto-sort button used to live so the
     -- player's gold sits next to the title bar instead of taking a
@@ -891,13 +904,15 @@ function Bag:Refresh()
     -- edges so they reflow automatically.
     frame:SetWidth(PanelWidthFor(cols))
 
-    -- Apply the bg-opacity setting to PortraitFrameFlatTemplate's Bg
-    -- frame (its FlatPanelBackgroundTemplate child). SetAlpha here
-    -- only dims the panel's dark background — items, chrome, and
-    -- text live in higher draw layers and stay fully opaque.
-    if frame.Bg then
-        frame.Bg:SetAlpha(addon:GetSetting("bgAlpha") or 1.0)
-    end
+    -- Apply the bg-opacity setting. frame.Bg is the stock
+    -- FlatPanelBackgroundTemplate (a translucent dark overlay).
+    -- frame.solidBg is the solid-black layer we added behind it so
+    -- that 100% actually reads as opaque rather than the stock's
+    -- ~70%. Scaling both together gives a clean fade from solid
+    -- (100%) to fully see-through (0%).
+    local bgAlpha = addon:GetSetting("bgAlpha") or 1.0
+    if frame.Bg      then frame.Bg:SetAlpha(bgAlpha)      end
+    if frame.solidBg then frame.solidBg:SetAlpha(bgAlpha) end
 
     -- Hide every existing slot button up front. Anything we still want
     -- visible gets re-shown + repositioned in the layout loop. This is

@@ -339,17 +339,52 @@ end
 -- character pane's "Bags" tab, just one click closer.
 ---------------------------------------------------------------------------
 
-local BAG_SLOT_INV_IDS = {
-    INVSLOT_BAG_1 or 20,
-    INVSLOT_BAG_2 or 21,
-    INVSLOT_BAG_3 or 22,
-    INVSLOT_BAG_4 or 23,
-    -- Reagent bag (Dragonflight+). In Midnight retail this is also
-    -- valid; older clients without a reagent slot will simply have
-    -- the button render an empty inventory query.
-    Enum and Enum.InventoryType and Enum.InventoryType.IndexProfessionToolEquipmentType  -- defensive
-        or 24,
-}
+-- Resolve the inventory slot IDs for the player's equipped bags.
+--
+-- Earlier we hardcoded {20, 21, 22, 23, 24} (the INVSLOT_BAG_* values
+-- from TWW 11.x), but Midnight 12.0 renumbered the equipped slots:
+-- INVSLOT_BAG_* aren't exported as globals anymore, and slot 20 in
+-- particular is now a profession tool slot — that's why the popup
+-- was showing alchemy tools instead of bags.
+--
+-- C_Container.ContainerIDToInventoryID is the canonical mapping from
+-- a container's bag index to its inventory slot, and Blizzard's own
+-- character pane goes through it. We resolve once on first use so
+-- we don't pay the lookup cost on every popup show.
+local BAG_SLOT_INV_IDS
+local function ResolveBagSlots()
+    if BAG_SLOT_INV_IDS then return BAG_SLOT_INV_IDS end
+
+    local slots = {}
+    local C = C_Container
+    if not (C and C.ContainerIDToInventoryID) then
+        -- Defensive: very old clients fall back to the legacy values.
+        -- Modern retail always has the API, so this branch is dead in
+        -- practice but keeps the popup from crashing if it's missing.
+        BAG_SLOT_INV_IDS = { 20, 21, 22, 23, 24 }
+        return BAG_SLOT_INV_IDS
+    end
+
+    -- Backpack is bag index 0 (and lives at INVSLOT_BACKPACK / cursor
+    -- slot 0); the four equipable bag slots are indices 1..4 and the
+    -- reagent bag is index 5. Width-defensive on NUM_BAG_SLOTS so we
+    -- pick up the count Blizzard exposes rather than assuming four.
+    local numBags = NUM_BAG_SLOTS or 4
+    for bagID = 1, numBags do
+        local invID = C.ContainerIDToInventoryID(bagID)
+        if invID then slots[#slots + 1] = invID end
+    end
+
+    if (NUM_REAGENTBAG_SLOTS or 0) > 0 then
+        local reagentBagID = (Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag)
+                             or (numBags + 1)
+        local invID = C.ContainerIDToInventoryID(reagentBagID)
+        if invID then slots[#slots + 1] = invID end
+    end
+
+    BAG_SLOT_INV_IDS = slots
+    return slots
+end
 
 local function UpdateBagSlotButton(btn)
     local slot = btn.invSlot
@@ -421,7 +456,8 @@ local function BuildBagChangePopup()
     local PAD = 8
     local SLOT_SIZE = 36
     local SLOT_GAP  = 4
-    local slotCount = #BAG_SLOT_INV_IDS
+    local invSlots  = ResolveBagSlots()
+    local slotCount = #invSlots
 
     local p = CreateFrame("Frame", "BazBagsBagChangePopup", frame, "BackdropTemplate")
     p:SetSize(PAD * 2 + slotCount * SLOT_SIZE + (slotCount - 1) * SLOT_GAP,
@@ -449,8 +485,8 @@ local function BuildBagChangePopup()
 
     -- Bag buttons in a row
     p.buttons = {}
-    for i, invSlot in ipairs(BAG_SLOT_INV_IDS) do
-        local isReagent = (i == #BAG_SLOT_INV_IDS)
+    for i, invSlot in ipairs(invSlots) do
+        local isReagent = (i == #invSlots) and (NUM_REAGENTBAG_SLOTS or 0) > 0
         local btn = BuildBagSlotButton(p, invSlot, isReagent)
         btn:SetSize(SLOT_SIZE, SLOT_SIZE)
         btn:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT",

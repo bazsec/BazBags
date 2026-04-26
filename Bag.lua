@@ -1157,10 +1157,37 @@ end
 -- Show / Hide / Toggle
 ---------------------------------------------------------------------------
 
-function Bag:Show()
-    BuildFrame()
+-- Show the panel for the first time? On the very first BuildFrame
+-- the scroll-frame's anchor-derived width hasn't propagated yet, so
+-- the first Refresh's contentH / scrollH math comes out off and the
+-- player sees a tall, mostly-empty panel until they close + reopen.
+-- Trigger a one-frame-deferred re-refresh on first show to recompute
+-- with the now-settled layout.
+local function ShowPanel(self)
+    -- Always start at the top of the scroll area when the panel is
+    -- shown — without this, ScrollFrame can come up at a stale scroll
+    -- position (e.g. saved from a prior session) and items render
+    -- below the visible window, making the panel look empty.
+    if frame.scrollFrame and frame.scrollFrame.SetVerticalScroll then
+        frame.scrollFrame:SetVerticalScroll(0)
+    end
+
     self:Refresh()
     frame:Show()
+
+    if not self._firstShownDone then
+        self._firstShownDone = true
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function()
+                if frame and frame:IsShown() then self:Refresh() end
+            end)
+        end
+    end
+end
+
+function Bag:Show()
+    BuildFrame()
+    ShowPanel(self)
 end
 
 function Bag:Hide()
@@ -1172,8 +1199,7 @@ function Bag:Toggle()
     if frame:IsShown() then
         frame:Hide()
     else
-        self:Refresh()
-        frame:Show()
+        ShowPanel(self)
     end
 end
 

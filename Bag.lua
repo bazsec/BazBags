@@ -717,8 +717,16 @@ events:RegisterEvent("BAG_UPDATE_COOLDOWN")
 events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
-events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency value or watch-state changes
+events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency VALUE changes
 events:SetScript("OnEvent", ScheduleRefresh)
+
+-- "Show on Backpack" toggles fire an EventRegistry callback rather
+-- than a regular Blizzard event (BackpackTokenFrameMixin uses the
+-- same callback at Blizzard_TokenUI.lua:641). Register so we refresh
+-- the moment the user marks/unmarks a currency in the Currency UI.
+if EventRegistry and EventRegistry.RegisterCallback then
+    EventRegistry:RegisterCallback("TokenFrame.OnTokenWatchChanged", ScheduleRefresh, addon)
+end
 
 ---------------------------------------------------------------------------
 -- Override Blizzard's bag toggles so the B key (and any addon that

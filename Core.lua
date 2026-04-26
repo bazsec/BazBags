@@ -21,6 +21,8 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
                                 -- the panel grow with content.
         bgAlpha       = 1.0,   -- 0..1 opacity of the panel's dark background — drop below 1 to see
                                 -- the world through the bag
+        strata        = "DIALOG", -- frame strata; DIALOG keeps the bag above the BazCore Settings
+                                -- window (HIGH) by default. Picker in Settings → Layout.
 
         -- Grouping mode:
         --   "bags"       (default) — Blizzard-style sections per bag/reagent
@@ -198,6 +200,25 @@ local function GetSettingsPage()
                 set   = function(_, val)
                     addon:SetSetting("bgAlpha", val / 100)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            strata = {
+                order = 6,
+                type  = "select",
+                name  = "Frame Strata",
+                desc  = "Which Z-order layer the bag renders on. Dialog keeps the bag above the BazCore Settings window (which sits at High); pick a lower strata if you'd rather the bag tuck under other UI.",
+                values = {
+                    LOW    = "Low",
+                    MEDIUM = "Medium",
+                    HIGH   = "High",
+                    DIALOG = "Dialog (default — above Settings)",
+                },
+                get = function() return addon:GetSetting("strata") or "DIALOG" end,
+                set = function(_, val)
+                    addon:SetSetting("strata", val)
+                    if addon.Bag and addon.Bag.frame and addon.Bag.frame.SetFrameStrata then
+                        addon.Bag.frame:SetFrameStrata(val)
+                    end
                 end,
             },
 

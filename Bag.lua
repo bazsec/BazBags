@@ -276,6 +276,10 @@ local function BuildFrame()
         savedAddon     = addon,
         savedKey       = "position",
         uiSpecialFrame = true,
+        -- DIALOG by default so the bag floats above the BazCore
+        -- Settings window (HIGH) — see the Strata setting in
+        -- Settings → Layout for picking a different layer.
+        strata         = addon:GetSetting("strata") or "DIALOG",
 
         -- Hover the portrait → tooltip explaining the click actions.
         -- Right-click → bag-change popup. (Left-click on the portrait
@@ -417,6 +421,10 @@ local function BuildFrame()
     for _, def in ipairs(SECTIONS) do
         sections[def.key] = BuildSection(def)
     end
+
+    -- Expose the live frame so settings setters (e.g. Frame Strata)
+    -- can poke it directly without going through Refresh.
+    addon.Bag.frame = frame
 
     return frame
 end

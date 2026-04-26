@@ -345,7 +345,7 @@ local function BuildFrame()
     -- ContainerMoneyFrameTemplate's Border child is
     -- ContainerFrameCurrencyBorderTemplate at a fixed y=17 with 8x17
     -- Left/Right cap textures and a stretching Middle.
-    local moneyH = (frame.search:GetHeight() or 18) + 1
+    local moneyH = (frame.search:GetHeight() or 18) + 2
     frame.money:SetHeight(moneyH)
     if frame.money.Border then
         frame.money.Border:SetHeight(moneyH)

@@ -904,8 +904,12 @@ function Bag:Refresh()
             })
         end
     else
-        -- Bag mode (the default). One section per bag type with the
-        -- existing collapse / count chrome.
+        -- Bag mode (the default). Clear any category chrome left over
+        -- from a Flow / Hybrid render before drawing the bag sections.
+        if addon.Layouts and addon.Layouts.HideAll then
+            addon.Layouts.HideAll()
+        end
+        -- One section per bag type with the existing collapse / count chrome.
         for _, def in ipairs(SECTIONS) do
             local section = sections[def.key]
             local collapsed = IsCollapsed(def.key)

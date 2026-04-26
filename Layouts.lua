@@ -37,11 +37,13 @@ local PILL_BORDER      = { 0.55, 0.42, 0.18, 0.85 }
 local TITLE_COLOR      = { 1.00, 0.82, 0.00 }    -- suite gold, matches headers
 
 ---------------------------------------------------------------------------
--- Pill / label cell pool (used by Flow + Hybrid)
+-- Pill / label cell pool — used by the Hybrid layout. Each pill is a
+-- slot-sized Button that flows alongside item slots, marking the
+-- start of a new category inline on a partial row.
 --
--- Each cell is a Button so it can capture clicks (collapse / expand
--- the category's items inline). The pool is keyed by category so
--- repeated renders reuse the same frame and avoid allocation churn.
+-- Flow used to share this pool but moved to a thin full-row divider
+-- (see GetOrCreateDividerRow below) — that style reads cleaner when
+-- categories own their own rows from the start.
 ---------------------------------------------------------------------------
 
 local labelCells = {}
@@ -91,6 +93,75 @@ local function HideAllLabelCells()
 end
 
 ---------------------------------------------------------------------------
+-- Divider-row pool — used by the Flow layout. A divider is a thin
+-- (~18 px) full-width row containing a chevron + category name + a
+-- subtle horizontal line that fades out to the right edge. Reads
+-- like the title rule on a chapter divider, packing into far less
+-- vertical space than a Sections-style header without sacrificing
+-- scannability.
+---------------------------------------------------------------------------
+
+local DIVIDER_HEIGHT = 18
+local dividerRows = {}
+
+local function GetOrCreateDividerRow(parent, key)
+    local row = dividerRows[key]
+    if row then
+        row:SetParent(parent)
+        return row
+    end
+
+    row = CreateFrame("Button", nil, parent)
+    row:SetHeight(DIVIDER_HEIGHT)
+
+    -- Hover background (subtle so it doesn't compete with the items).
+    local hover = row:CreateTexture(nil, "BACKGROUND")
+    hover:SetAllPoints()
+    hover:SetColorTexture(1, 1, 1, 0.04)
+    hover:Hide()
+    row.hover = hover
+
+    -- Collapse / expand chevron, anchored to the very left of the row.
+    row.toggle = row:CreateTexture(nil, "OVERLAY")
+    row.toggle:SetSize(12, 12)
+    row.toggle:SetPoint("LEFT", 4, 0)
+
+    -- Category title in suite gold.
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.text:SetPoint("LEFT", row.toggle, "RIGHT", 6, 0)
+    row.text:SetTextColor(unpack(TITLE_COLOR))
+
+    -- Faint horizontal rule that fills the rest of the row beyond the
+    -- title text. The 0.5 alpha keeps it visible without competing
+    -- with the icons below for attention.
+    row.line = row:CreateTexture(nil, "ARTWORK")
+    row.line:SetHeight(1)
+    row.line:SetPoint("LEFT", row.text, "RIGHT", 8, 0)
+    row.line:SetPoint("RIGHT", -8, 0)
+    row.line:SetColorTexture(unpack(PILL_BORDER))
+
+    row:RegisterForClicks("LeftButtonUp")
+    row:SetScript("OnEnter", function(self) self.hover:Show() end)
+    row:SetScript("OnLeave", function(self) self.hover:Hide() end)
+
+    dividerRows[key] = row
+    return row
+end
+
+local function HideAllDividerRows()
+    for _, row in pairs(dividerRows) do
+        row:Hide()
+    end
+end
+
+-- Public hide-all so Bag.lua can clear our chrome when it switches
+-- back to bag mode (otherwise stale dividers / pills remain visible).
+function Layouts.HideAll()
+    HideAllLabelCells()
+    HideAllDividerRows()
+end
+
+---------------------------------------------------------------------------
 -- Sections layout
 --
 -- One header + grid block per category. Reuses Bag.lua's section
@@ -117,6 +188,7 @@ function Layouts.RenderSections(ctx)
     local catList    = Categories.GetOrdered()
 
     HideAllLabelCells()
+    HideAllDividerRows()
 
     local y = -TOP_PAD
     for _, cat in ipairs(catList) do
@@ -171,103 +243,97 @@ end
 ---------------------------------------------------------------------------
 -- Flow layout
 --
--- All items + category labels in one continuous grid. Labels are
--- LABEL_CELLS_WIDE slots wide; if a label would split across rows,
--- we pad the rest of the current row and start the label fresh on the
--- next. Click the label to collapse / expand its category's items.
+-- Each category gets a thin full-width divider row (chevron + name +
+-- a faint horizontal rule that runs to the right edge). Items pack
+-- in a regular grid below the divider; when items wrap, they wrap
+-- inside that category. The next category always starts on a fresh
+-- row with its own divider, so the eye reads top-to-bottom in clean
+-- chapters instead of hunting for inline pills.
+--
+-- Compared to Sections this saves vertical space (one ~18 px line
+-- per category instead of a full chrome header), and unlike the
+-- earlier pill-cell flavour it never lands a label in the middle of
+-- a row.
 ---------------------------------------------------------------------------
 
+local FLOW_DIVIDER_GAP_BELOW = 4   -- gap between divider and first item row
+local FLOW_CATEGORY_GAP      = 6   -- gap between one category's items and the next divider
+
 function Layouts.RenderFlow(ctx)
-    local frame        = ctx.frame
-    local cols         = ctx.cols
-    local SLOT_SIZE    = ctx.SLOT_SIZE
+    local frame          = ctx.frame
+    local cols           = ctx.cols
+    local SLOT_SIZE      = ctx.SLOT_SIZE
     local SLOT_SPACING_X = ctx.SLOT_SPACING_X
     local SLOT_SPACING_Y = ctx.SLOT_SPACING_Y
-    local SIDE_PAD     = ctx.SIDE_PAD
-    local TOP_PAD      = ctx.TOP_PAD
-    local IsCollapsed  = ctx.IsCollapsed
-    local SetCollapsed = ctx.SetCollapsed
+    local SIDE_PAD       = ctx.SIDE_PAD
+    local TOP_PAD        = ctx.TOP_PAD
+    local IsCollapsed    = ctx.IsCollapsed
+    local SetCollapsed   = ctx.SetCollapsed
     local GetOrCreateSlotButton = ctx.GetOrCreateSlotButton
-    local UpdateSlot   = ctx.UpdateSlot
-    local Refresh      = ctx.Refresh
+    local UpdateSlot     = ctx.UpdateSlot
+    local Refresh        = ctx.Refresh
 
     local Categories = addon.Categories
     local byCategory = Categories.GetPairsByCategory()
     local catList    = Categories.GetOrdered()
 
-    -- Hide every section frame — Flow doesn't use them.
+    -- Hide bag-mode section chrome and the Hybrid pill cells in case
+    -- the user just switched layouts.
     for _, sec in pairs(addon.Bag.sections) do
         sec.header:Hide()
         sec.body:Hide()
     end
-
     HideAllLabelCells()
+    HideAllDividerRows()
 
     local y = -TOP_PAD
-    -- Build flat cell list: alternating label / slot entries.
-    local cells = {}
+
     for _, cat in ipairs(catList) do
         local items = byCategory[cat.key]
         if items and #items > 0 then
-            cells[#cells + 1] = { type = "label", key = cat.key, title = cat.title }
-            if not IsCollapsed(cat.key) then
-                for _, p in ipairs(items) do
-                    cells[#cells + 1] = { type = "slot", bagID = p.bagID, slotID = p.slotID }
-                end
-            end
-        end
-    end
+            local collapsed = IsCollapsed(cat.key)
 
-    -- Lay them out: columns 0..cols-1, wrap to next row when full.
-    -- Labels are 2 cells wide and never split.
-    local cellIdx = 0  -- 0-based grid cursor
-    for _, cell in ipairs(cells) do
-        if cell.type == "label" then
-            local col = cellIdx % cols
-            -- Don't split a label across rows
-            if col + LABEL_CELLS_WIDE > cols then
-                cellIdx = cellIdx + (cols - col)
-            end
-            local col2 = cellIdx % cols
-            local row  = math.floor(cellIdx / cols)
-            local x    = col2 * (SLOT_SIZE + SLOT_SPACING_X)
-            local yPos = y - row * (SLOT_SIZE + SLOT_SPACING_Y)
-
-            local lbl = GetOrCreateLabelCell(frame, cell.key, SLOT_SIZE, SLOT_SPACING_X)
-            lbl:ClearAllPoints()
-            lbl:SetPoint("TOPLEFT", frame, "TOPLEFT", SIDE_PAD + x, yPos)
-            lbl.text:SetText(cell.title)
-            local collapsed = IsCollapsed(cell.key)
-            lbl.toggle:SetTexture(collapsed
+            -- Divider row spans the full width.
+            local divider = GetOrCreateDividerRow(frame, cat.key)
+            divider:ClearAllPoints()
+            divider:SetPoint("TOPLEFT",  frame, "TOPLEFT",  SIDE_PAD,  y)
+            divider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -SIDE_PAD, y)
+            divider.text:SetText(cat.title)
+            divider.toggle:SetTexture(collapsed
                 and "Interface\\Buttons\\UI-PlusButton-Up"
                 or  "Interface\\Buttons\\UI-MinusButton-Up")
-            -- Re-attach click each render (closure captures the latest key)
-            local key = cell.key
-            lbl:SetScript("OnClick", function()
+            local key = cat.key
+            divider:SetScript("OnClick", function()
                 SetCollapsed(key, not IsCollapsed(key))
                 if Refresh then Refresh() end
             end)
-            lbl:Show()
-            cellIdx = cellIdx + LABEL_CELLS_WIDE
-        else
-            local col = cellIdx % cols
-            local row = math.floor(cellIdx / cols)
-            local x   = col * (SLOT_SIZE + SLOT_SPACING_X)
-            local yPos = y - row * (SLOT_SIZE + SLOT_SPACING_Y)
+            divider:Show()
 
-            local btn = GetOrCreateSlotButton(cell.bagID, cell.slotID)
-            btn:ClearAllPoints()
-            btn:SetPoint("TOPLEFT", frame, "TOPLEFT", SIDE_PAD + x, yPos)
-            btn:Show()
-            UpdateSlot(btn, cell.bagID, cell.slotID)
-            cellIdx = cellIdx + 1
+            y = y - DIVIDER_HEIGHT - FLOW_DIVIDER_GAP_BELOW
+
+            if not collapsed then
+                for i, p in ipairs(items) do
+                    local btn = GetOrCreateSlotButton(p.bagID, p.slotID)
+                    local col = (i - 1) % cols
+                    local row = math.floor((i - 1) / cols)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("TOPLEFT", frame, "TOPLEFT",
+                        SIDE_PAD + col * (SLOT_SIZE + SLOT_SPACING_X),
+                        y - row * (SLOT_SIZE + SLOT_SPACING_Y))
+                    btn:Show()
+                    UpdateSlot(btn, p.bagID, p.slotID)
+                end
+
+                local rows  = math.ceil(#items / cols)
+                local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
+                y = y - bodyH - FLOW_CATEGORY_GAP
+            else
+                y = y - FLOW_CATEGORY_GAP
+            end
         end
     end
 
-    local rows  = math.ceil(cellIdx / cols)
-    if rows < 1 then rows = 0 end
-    local bodyH = rows * SLOT_SIZE + math.max(0, rows - 1) * SLOT_SPACING_Y
-    return y - bodyH
+    return y
 end
 
 ---------------------------------------------------------------------------
@@ -306,6 +372,7 @@ function Layouts.RenderHybrid(ctx)
     local catList    = Categories.GetOrdered()
 
     HideAllLabelCells()
+    HideAllDividerRows()
     -- Hide all sections up front; we'll re-show as we render.
     for _, sec in pairs(addon.Bag.sections) do
         sec.header:Hide()

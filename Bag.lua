@@ -379,6 +379,17 @@ local function BuildFrame()
     sf:SetScrollChild(sc)
     frame.scrollChild = sc
 
+    -- Divider rule between the scroll area and the footer chrome
+    -- (money + tokens). Without it the last row of items reads as
+    -- bleeding into the gold / currency strip — this gives the eye
+    -- a clear "end of bag content" line. Same warm-gold tone as the
+    -- category dividers inside the scroll area for consistency.
+    frame.contentDivider = frame:CreateTexture(nil, "ARTWORK")
+    frame.contentDivider:SetHeight(1)
+    frame.contentDivider:SetColorTexture(0.55, 0.42, 0.18, 0.85)
+    frame.contentDivider:SetPoint("TOPLEFT",  sf, "BOTTOMLEFT",  0, -3)
+    frame.contentDivider:SetPoint("TOPRIGHT", sf, "BOTTOMRIGHT", 0, -3)
+
     -- Build sections
     for _, def in ipairs(SECTIONS) do
         sections[def.key] = BuildSection(def)

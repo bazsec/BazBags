@@ -237,20 +237,9 @@ local function BuildSection(def)
     return section
 end
 
--- Lazily build a section frame for the given def. Used by both the
--- bag-mode loop (which has fixed defs) and the Layouts module for
--- category-mode rendering (where the def list depends on which
--- categories currently hold items + any user custom categories).
-local function GetOrCreateSection(def)
-    if sections[def.key] then return sections[def.key] end
-    sections[def.key] = BuildSection(def)
-    return sections[def.key]
-end
-
 -- Public API surface for the Layouts module. Capturing the locals
 -- on addon.Bag means Layouts.lua can drive the same rendering
 -- primitives without re-implementing them.
-addon.Bag.GetOrCreateSection    = GetOrCreateSection
 addon.Bag.IsCollapsed           = IsCollapsed
 addon.Bag.SetCollapsed          = SetCollapsed
 addon.Bag.GetOrCreateSlotButton = GetOrCreateSlotButton
@@ -863,46 +852,32 @@ function Bag:Refresh()
     -- common case). Category mode hands off to the Layouts module.
     local mode = addon:GetSetting("bagMode") or "bags"
 
-    if mode == "categories" and addon.Layouts then
-        local layoutKey = addon:GetSetting("categoryLayout") or "flow"
-        local renderFn
-        if layoutKey == "sections" then
-            renderFn = addon.Layouts.RenderSections
-        elseif layoutKey == "hybrid" then
-            renderFn = addon.Layouts.RenderHybrid
-        else
-            renderFn = addon.Layouts.RenderFlow
-        end
-
-        if renderFn then
-            -- Hide bag-mode sections when category mode is active so a
-            -- pooled section frame from a previous render doesn't peek
-            -- through the category layout.
-            for _, def in ipairs(SECTIONS) do
-                local section = sections[def.key]
-                if section then
-                    section.header:Hide()
-                    section.body:Hide()
-                end
+    if mode == "categories" and addon.Layouts and addon.Layouts.Render then
+        -- Hide bag-mode sections when category mode is active so a
+        -- pooled section frame from a previous render doesn't peek
+        -- through the category layout.
+        for _, def in ipairs(SECTIONS) do
+            local section = sections[def.key]
+            if section then
+                section.header:Hide()
+                section.body:Hide()
             end
-
-            y = renderFn({
-                frame                 = frame,
-                cols                  = cols,
-                SLOT_SIZE             = SLOT_SIZE,
-                SLOT_SPACING_X        = SLOT_SPACING_X,
-                SLOT_SPACING_Y        = SLOT_SPACING_Y,
-                SECTION_HEADER_H      = SECTION_HEADER_H,
-                SIDE_PAD              = SIDE_PAD,
-                TOP_PAD               = TOP_PAD,
-                IsCollapsed           = IsCollapsed,
-                SetCollapsed          = SetCollapsed,
-                GetOrCreateSection    = GetOrCreateSection,
-                GetOrCreateSlotButton = GetOrCreateSlotButton,
-                UpdateSlot            = UpdateSlot,
-                Refresh               = function() Bag:Refresh() end,
-            })
         end
+
+        y = addon.Layouts.Render({
+            frame                 = frame,
+            cols                  = cols,
+            SLOT_SIZE             = SLOT_SIZE,
+            SLOT_SPACING_X        = SLOT_SPACING_X,
+            SLOT_SPACING_Y        = SLOT_SPACING_Y,
+            SIDE_PAD              = SIDE_PAD,
+            TOP_PAD               = TOP_PAD,
+            IsCollapsed           = IsCollapsed,
+            SetCollapsed          = SetCollapsed,
+            GetOrCreateSlotButton = GetOrCreateSlotButton,
+            UpdateSlot            = UpdateSlot,
+            Refresh               = function() Bag:Refresh() end,
+        })
     else
         -- Bag mode (the default). Clear any category chrome left over
         -- from a Flow / Hybrid render before drawing the bag sections.

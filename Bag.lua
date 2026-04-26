@@ -350,11 +350,14 @@ end
 -- currencies stack like coins.
 ---------------------------------------------------------------------------
 
-local TOKEN_ENTRY_W   = 50
-local TOKEN_ENTRY_H   = 14   -- match MONEY_ICON_WIDTH_SMALL so the row visually equals the money row
-local TOKEN_ICON_SIZE = 14   -- match the gold/silver/copper icon size
-local TOKEN_GAP       = 2    -- horizontal gap between adjacent entries
-local TOKEN_RIGHT_PAD = 13   -- match the border's right-cap inset (same 13 as money frame)
+local TOKEN_ENTRY_W    = 50    -- match BackpackTokenTemplate width
+local TOKEN_ENTRY_H    = 12    -- match BackpackTokenTemplate height
+local TOKEN_ICON_SIZE  = 10    -- a touch smaller than Blizzard's 12 so icons sit comfortably inside the 17-tall green border with no clipping
+local TOKEN_ICON_Y     = 0     -- y=0 keeps icon perfectly centered (Blizzard uses y=1, which can clip on smaller borders)
+local TOKEN_GAP        = 0     -- BackpackTokenFrameMixin:GetTokenLayout uses x-spacing=0
+local TOKEN_RIGHT_PAD  = 17    -- BackpackTokenFrameMixin:GetInitialTokenAnchor uses RIGHT,-17,-1
+local TOKEN_LEFT_PAD   = 17    -- mirror right pad so the green box looks symmetric
+local TOKEN_TEXT_H     = 10    -- BackpackTokenTemplate.Count Size y="10" — keeps the glyphs vertically centered with the icon
 
 local function GetOrCreateTokenEntry(parent, idx)
     if parent.entries[idx] then return parent.entries[idx] end
@@ -365,12 +368,17 @@ local function GetOrCreateTokenEntry(parent, idx)
 
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
     btn.icon:SetSize(TOKEN_ICON_SIZE, TOKEN_ICON_SIZE)
-    btn.icon:SetPoint("RIGHT", 4, 1)
+    btn.icon:SetPoint("RIGHT", 0, TOKEN_ICON_Y)
 
+    -- FontString height fixed to TOKEN_TEXT_H so its glyph baseline
+    -- sits vertically aligned with the icon's center. Anchor RIGHT
+    -- to icon.LEFT (centered y) instead of TOPLEFT — Blizzard's
+    -- TOPLEFT anchor only happens to align because their button
+    -- height equals their text height; ours doesn't.
     btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     btn.count:SetJustifyH("RIGHT")
-    btn.count:SetPoint("TOPLEFT")
-    btn.count:SetPoint("RIGHT", btn.icon, "LEFT")
+    btn.count:SetHeight(TOKEN_TEXT_H)
+    btn.count:SetPoint("RIGHT", btn.icon, "LEFT", -3, 0)
 
     btn:SetScript("OnEnter", function(self)
         if not self._currencyID then return end
@@ -564,12 +572,12 @@ function Bag:Refresh()
     local hasTokens = tokenCount > 0
 
     if hasTokens then
-        -- Dynamic width: 13 px right cap + entries (each TOKEN_ENTRY_W
-        -- with TOKEN_GAP between) + 13 px left cap. Symmetric with
-        -- the money frame's gold border.
+        -- Dynamic width: left cap + entries (each TOKEN_ENTRY_W with
+        -- TOKEN_GAP between) + right cap. Symmetric with the money
+        -- frame's gold border.
         local contentW = tokenCount * TOKEN_ENTRY_W
                        + math.max(0, tokenCount - 1) * TOKEN_GAP
-        local totalW   = contentW + TOKEN_RIGHT_PAD * 2
+        local totalW   = contentW + TOKEN_LEFT_PAD + TOKEN_RIGHT_PAD
 
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()
@@ -595,7 +603,9 @@ function Bag:Refresh()
             -- Blizzard's combined-bag layout (ContainerFrame.lua:2492).
             frame.money:ClearAllPoints()
             if hasTokens then
-                frame.money:SetPoint("BOTTOMRIGHT", frame.tokens, "TOPRIGHT", 0, 3)
+                -- 6 px gap between the green and gold rows so they
+                -- read as a coordinated pair rather than touching.
+                frame.money:SetPoint("BOTTOMRIGHT", frame.tokens, "TOPRIGHT", 0, 6)
             else
                 frame.money:SetPoint("BOTTOMRIGHT", -12, 12)
             end

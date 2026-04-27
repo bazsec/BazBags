@@ -88,6 +88,11 @@ local bagContexts   = {}          -- [bagID] = invisible parent (provides GetID 
 local slotButtons   = {}          -- [bagID] = { [slotID] = button }
 local sections      = {}          -- [key]   = { header, body, ... }
 local refreshPending = false
+local categorizeMode = false      -- toggled via left-click on the portrait;
+                                  -- when on, the category layout shows drop
+                                  -- slots + empty categories so the user can
+                                  -- pin items by dropping them. In-memory
+                                  -- only — resets to off on /reload.
 
 -- Sections is exposed so the Layouts module can hide them when it
 -- takes over (e.g. switching from Sections to Flow mode). Other
@@ -156,8 +161,85 @@ local function GetOrCreateSlotButton(bagID, slotID)
         btn:SetID(slotID)
     end
 
+    -- Shift+right-click → category context menu. PreClick fires before
+    -- the secure action handler (which would normally use the item on
+    -- right-click), so we can show our menu without losing the rest of
+    -- the slot's standard behaviour. shift+right is unbound by default
+    -- in modern WoW so this doesn't compete with use-item / split-stack.
+    btn:HookScript("PreClick", function(self, mouseBtn)
+        if mouseBtn == "RightButton" and IsShiftKeyDown() then
+            Bag:ShowCategoryMenuForSlot(self, bagID, slotID)
+        end
+    end)
+
     slotButtons[bagID][slotID] = btn
     return btn
+end
+
+---------------------------------------------------------------------------
+-- Category context menu (shift+right-click on a bag item)
+--
+-- Shows a MenuUtil context menu listing every category with the
+-- current pin highlighted. Clicking a category pins the item there;
+-- clicking the already-pinned category unpins. An explicit "Unpin"
+-- entry is included whenever a pin exists for ergonomic discovery.
+---------------------------------------------------------------------------
+
+-- Small green check icon used to mark the active pin in the menu.
+local CHECK_GLYPH = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14:0:0|t"
+
+function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+
+    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+    if not info or not info.itemID then return end  -- empty slot
+
+    local itemID = info.itemID
+    local link   = info.hyperlink
+
+    local pins       = addon:GetSetting("itemCategories") or {}
+    local currentKey = pins[itemID]
+
+    local Categories = addon.Categories
+    if not Categories then return end
+    local cats = Categories.GetAll() or {}
+
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:CreateTitle(link or ("Item " .. itemID))
+
+        for _, cat in ipairs(cats) do
+            local label = cat.name or cat.key
+            -- Hidden categories still appear in the menu — pinning to
+            -- a hidden category is a deliberate "stash this item out
+            -- of view" action — but get a grey suffix so the user
+            -- knows what they're picking.
+            if cat.hidden then
+                label = label .. "  |cff888888(hidden)|r"
+            end
+            -- Mark the current pin with a check + gold colour so the
+            -- user immediately sees where the item lives.
+            if cat.key == currentKey then
+                label = "|cffffd700" .. CHECK_GLYPH .. " " .. label .. "|r"
+            end
+            local capturedKey = cat.key
+            root:CreateButton(label, function()
+                if capturedKey == currentKey then
+                    Categories.RemoveItem(itemID)  -- toggle off
+                else
+                    Categories.AddItem(itemID, capturedKey)
+                end
+                if Bag.Refresh then Bag:Refresh() end
+            end)
+        end
+
+        if currentKey then
+            root:CreateDivider()
+            root:CreateButton("Unpin (auto-classify)", function()
+                Categories.RemoveItem(itemID)
+                if Bag.Refresh then Bag:Refresh() end
+            end)
+        end
+    end)
 end
 
 ---------------------------------------------------------------------------
@@ -282,18 +364,28 @@ local function BuildFrame()
         strata         = addon:GetSetting("strata") or "DIALOG",
 
         -- Hover the portrait → tooltip explaining the click actions.
-        -- Right-click → bag-change popup. (Left-click on the portrait
-        -- doesn't drag the frame because the click overlay intercepts
-        -- it — drag from anywhere else on the title bar still works.)
+        -- Left-click sorts the bag (Blizzard's C_Container.SortBags).
+        -- Middle-click toggles Categorize mode (drop slots + every
+        -- category visible, for batch-pinning items). Right-click
+        -- opens the bag-change popup. Drag from anywhere else on
+        -- the title bar still works to move the frame.
         portraitTooltip = {
             title = "BazBags",
             lines = {
+                "|cffffd700Left-click|r to sort bags",
+                "|cffffd700Middle-click|r to toggle Categorize mode",
                 "|cffffd700Right-click|r to change bags",
                 "|cffffd700Drag the title bar|r to move the panel",
             },
         },
         portraitOnClick = function(_, button)
-            if button == "RightButton" then
+            if button == "LeftButton" then
+                if C_Container and C_Container.SortBags then
+                    C_Container.SortBags()
+                end
+            elseif button == "MiddleButton" then
+                Bag:ToggleCategorizeMode()
+            elseif button == "RightButton" then
                 Bag:ToggleBagChangePopup()
             end
         end,
@@ -645,6 +737,27 @@ function Bag:ToggleBagChangePopup()
 end
 
 ---------------------------------------------------------------------------
+-- Categorize mode
+--
+-- When on, the category layout reveals every category (including
+-- hidden ones and ones with no items currently) and shows a gold "+"
+-- drop slot at the end of each grid. Click a drop slot or release a
+-- drag onto it to pin the held item. Toggle off to return to the
+-- normal "only categories with items" view. Triggered by left-click
+-- on the bag's portrait icon. State is in-memory only — every fresh
+-- /reload starts in normal mode.
+---------------------------------------------------------------------------
+
+function Bag:IsCategorizeMode()
+    return categorizeMode
+end
+
+function Bag:ToggleCategorizeMode()
+    categorizeMode = not categorizeMode
+    Bag:Refresh()
+end
+
+---------------------------------------------------------------------------
 -- Money frame state
 --
 -- ContainerMoneyFrameTemplate registers PLAYER_MONEY itself and calls
@@ -907,6 +1020,22 @@ end
 function Bag:Refresh()
     if not frame then return end
 
+    -- Pin the frame to its current top-left corner before any resize
+    -- so width/height changes grow toward bottom-right rather than
+    -- expanding outward from the centre. Without this, toggling
+    -- Categorize mode (or any setting that changes height) visually
+    -- shifts the title bar / portrait icon — reads as jittery.
+    -- BazCore's drag-stop handler re-saves whichever anchor GetPoint
+    -- returns, so converting to TOPLEFT here is durable: the next
+    -- drag will persist a TOPLEFT-anchored position.
+    do
+        local left, top = frame:GetLeft(), frame:GetTop()
+        if left and top then
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        end
+    end
+
     -- Live settings — re-read on every refresh so toggling the Columns
     -- slider or Hide Empty toggle applies immediately.
     local cols       = GetCols()
@@ -982,6 +1111,34 @@ function Bag:Refresh()
             GetOrCreateSlotButton = GetOrCreateSlotButton,
             UpdateSlot            = UpdateSlot,
             Refresh               = function() Bag:Refresh() end,
+        })
+    elseif addon:GetSetting("perBagSections")
+           and addon.Layouts and addon.Layouts.RenderPerBag then
+        -- Bags mode + Separate Each Bag — render one thin-divider
+        -- section per equipped bag, sharing the divider chrome with
+        -- Categories mode.
+        for _, def in ipairs(SECTIONS) do
+            local section = sections[def.key]
+            if section then
+                section.header:Hide()
+                section.body:Hide()
+            end
+        end
+
+        y = addon.Layouts.RenderPerBag({
+            frame                 = frame.scrollChild or frame,
+            cols                  = cols,
+            SLOT_SIZE             = SLOT_SIZE,
+            SLOT_SPACING_X        = SLOT_SPACING_X,
+            SLOT_SPACING_Y        = SLOT_SPACING_Y,
+            SIDE_PAD              = 0,
+            TOP_PAD               = 0,
+            IsCollapsed           = IsCollapsed,
+            SetCollapsed          = SetCollapsed,
+            GetOrCreateSlotButton = GetOrCreateSlotButton,
+            UpdateSlot            = UpdateSlot,
+            Refresh               = function() Bag:Refresh() end,
+            hideEmpty             = hideEmpty,
         })
     else
         -- Bag mode (the default). Clear any category chrome left over

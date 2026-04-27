@@ -84,6 +84,7 @@ function Categories.GetAll()
             name      = info.name or key,
             order     = info.order or 100,
             isDefault = info.isDefault or false,
+            hidden    = info.hidden  or false,
         }
     end
     table.sort(list, function(a, b)
@@ -114,6 +115,19 @@ function Categories.Reorder(key, newOrder)
     local cats = addon:GetSetting("categories") or {}
     if not cats[key] then return end
     cats[key].order = newOrder
+    addon:SetSetting("categories", cats)
+end
+
+-- Hidden categories still exist in the data model — items can still be
+-- classified/pinned to them — but the bag layout skips them entirely
+-- (no divider, no items, no drop slot). Useful for "Junk" so grey
+-- items don't visually clutter the bag while still occupying their
+-- real container slots, and for stashing items the user wants out of
+-- the way without permanently removing them.
+function Categories.SetHidden(key, hidden)
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[key] then return end
+    cats[key].hidden = hidden and true or false
     addon:SetSetting("categories", cats)
 end
 

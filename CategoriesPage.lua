@@ -94,7 +94,7 @@ local function BuildCategoryDetail(item)
         type  = "note",
         style = "info",
         text  = isDefault
-            and "You can rename this category, change its order, or pin extra items below. The auto-classifier still uses the original key, so renaming doesn't break anything."
+            and "You can rename this category, reorder it (use the up/down arrows on the left list), or pin extra items below. The auto-classifier still uses the original key, so renaming doesn't break anything."
             or  "Custom category - only items you pin below will appear here.",
     }
 
@@ -111,21 +111,6 @@ local function BuildCategoryDetail(item)
         set  = function(_, val)
             if not val or val == "" then return end
             addon.Categories.Rename(key, val)
-            RefreshAll()
-        end,
-    }
-
-    blocks[#blocks+1] = {
-        type = "range",
-        name = "Order",
-        desc = "Lower numbers appear first. Default categories use 10/20/30/40/50/60; pick a value between two existing categories to slot in between them.",
-        min  = 1, max = 200, step = 1,
-        get  = function()
-            local entry = addon.Categories.Get(key)
-            return entry and entry.order or 100
-        end,
-        set  = function(_, val)
-            addon.Categories.Reorder(key, val)
             RefreshAll()
         end,
     }
@@ -249,6 +234,21 @@ if BazCore.QueueForLogin then
                 RefreshAll()
             end,
             resetButtonText = "Reset to Defaults",
+
+            -- Up/down arrows on every row replace the old "Order" range
+            -- slider in the detail pane. Click the arrow, the row jumps
+            -- one slot, the bag panel re-renders. Top/bottom rows
+            -- render their boundary arrow disabled automatically (the
+            -- shared row renderer handles the greying based on whether
+            -- we hand it a callback for that direction).
+            onMoveUp = function(item)
+                addon.Categories.MoveUp(item.key)
+                RefreshAll()
+            end,
+            onMoveDown = function(item)
+                addon.Categories.MoveDown(item.key)
+                RefreshAll()
+            end,
         })
 
         BazCore:RegisterOptionsTable(PAGE_KEY, pageFunc)

@@ -118,6 +118,53 @@ function Categories.Reorder(key, newOrder)
     addon:SetSetting("categories", cats)
 end
 
+---------------------------------------------------------------------------
+-- MoveUp / MoveDown
+--
+-- Swap the order value with the adjacent neighbour in the currently
+-- sorted list. The Categories settings page wires its row up/down
+-- arrow buttons to these so the user never has to hand-pick numeric
+-- order values - they just nudge the row up or down and the
+-- orderings shuffle to match.
+--
+-- Both no-op cleanly at the list edges, matching the renderer which
+-- greys out the boundary arrow.
+---------------------------------------------------------------------------
+
+local function SwapOrders(keyA, keyB)
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[keyA] or not cats[keyB] then return end
+    local oa, ob = cats[keyA].order or 0, cats[keyB].order or 0
+    -- Defensive: if both share the same order (which the GetAll
+    -- tie-break tolerates) bump one off by 1 so they actually swap
+    -- positions instead of staying coincident.
+    if oa == ob then ob = oa + 1 end
+    cats[keyA].order, cats[keyB].order = ob, oa
+    addon:SetSetting("categories", cats)
+end
+
+function Categories.MoveUp(key)
+    local list = Categories.GetAll()
+    for i, c in ipairs(list) do
+        if c.key == key then
+            if i == 1 then return end
+            SwapOrders(key, list[i-1].key)
+            return
+        end
+    end
+end
+
+function Categories.MoveDown(key)
+    local list = Categories.GetAll()
+    for i, c in ipairs(list) do
+        if c.key == key then
+            if i == #list then return end
+            SwapOrders(key, list[i+1].key)
+            return
+        end
+    end
+end
+
 -- Hidden categories still exist in the data model - items can still be
 -- classified/pinned to them - but the bag layout skips them entirely
 -- (no divider, no items, no drop slot). Useful for "Junk" so grey

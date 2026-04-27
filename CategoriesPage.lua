@@ -1,8 +1,8 @@
 ---------------------------------------------------------------------------
--- BazBags — Categories settings page
+-- BazBags - Categories settings page
 --
 -- Built on BazCore:CreateManagedListPage so the page is automatically
--- cohesive with the User Manual's visual chrome — same title bar,
+-- cohesive with the User Manual's visual chrome - same title bar,
 -- gold-gradient list selection, auto-h1 detail title, rich content
 -- blocks (paragraph, h3, note, divider) interleaved with form widgets
 -- (input, range, execute).
@@ -70,14 +70,14 @@ end
 
 -- One short paragraph per default category explaining what the
 -- auto-classifier does for that key. Custom categories don't have
--- one — they only show items the user has pinned to them.
+-- one - they only show items the user has pinned to them.
 local AUTO_BLURB = {
     equipment   = "Auto-classifies items in the Weapons and Armor item classes.",
     consumables = "Auto-classifies items in the Consumables item class.",
     tradegoods  = "Auto-classifies Trade Goods, Recipes, Gems, and Item Enhancements.",
     questitems  = "Auto-classifies items in the Quest Items class.",
     junk        = "Auto-classifies items with quality Poor (grey).",
-    other       = "Catch-all — anything no other default category claims lands here.",
+    other       = "Catch-all - anything no other default category claims lands here.",
 }
 
 local function BuildCategoryDetail(item)
@@ -95,7 +95,7 @@ local function BuildCategoryDetail(item)
         style = "info",
         text  = isDefault
             and "You can rename this category, change its order, or pin extra items below. The auto-classifier still uses the original key, so renaming doesn't break anything."
-            or  "Custom category — only items you pin below will appear here.",
+            or  "Custom category - only items you pin below will appear here.",
     }
 
     blocks[#blocks+1] = { type = "h3", name = "Identity" }
@@ -133,7 +133,7 @@ local function BuildCategoryDetail(item)
     blocks[#blocks+1] = {
         type = "toggle",
         name = "Hide from bag panel",
-        desc = "When on, this category's divider and items don't appear in the bag panel. Items still occupy their real bag slots — Hide is a display preference, not a delete. Pin an item to a hidden category (via shift+right-click on the item) to keep it out of view.",
+        desc = "When on, this category's divider and items don't appear in the bag panel. Items still occupy their real bag slots - Hide is a display preference, not a delete. Pin an item to a hidden category (via shift+right-click on the item) to keep it out of view.",
         get  = function()
             local entry = addon.Categories.Get(key)
             return entry and entry.hidden or false
@@ -166,7 +166,7 @@ local function BuildCategoryDetail(item)
         end,
     }
 
-    -- One execute button per pinned item — clicking unpins it.
+    -- One execute button per pinned item - clicking unpins it.
     local pins = addon.Categories.GetPinnedItems(key)
     if #pins == 0 then
         blocks[#blocks+1] = {

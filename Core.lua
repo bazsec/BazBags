@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------
--- BazBags — lightweight unified bag panel
+-- BazBags - lightweight unified bag panel
 --
 -- Core registration: BazCore addon entry, slash commands, profiles,
 -- minimap menu entry, options pages. The actual bag UI lives in Bag.lua.
@@ -14,26 +14,26 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
     profiles      = true,
     defaults = {
         -- Layout
-        cols          = 12,    -- columns wide; 4..20 via the slider — 12 fits a typical bag in 2-3 rows
-        hideEmpty     = true,  -- skip empty slots by default — most first-time users prefer the compact view
+        cols          = 12,    -- columns wide; 4..20 via the slider - 12 fits a typical bag in 2-3 rows
+        hideEmpty     = true,  -- skip empty slots by default - most first-time users prefer the compact view
         maxRows       = 15,    -- soft cap on the panel's content area in rows of slots; content past
                                 -- this scrolls. Set to ~30 to effectively disable the cap and let
                                 -- the panel grow with content.
-        bgAlpha       = 1.0,   -- 0..1 opacity of the panel's dark background — drop below 1 to see
+        bgAlpha       = 1.0,   -- 0..1 opacity of the panel's dark background - drop below 1 to see
                                 -- the world through the bag
         strata        = "DIALOG", -- frame strata; DIALOG keeps the bag above the BazCore Settings
-                                -- window (HIGH) by default. Picker in Settings → Layout.
+                                -- window (HIGH) by default. Picker in Settings > Layout.
 
         -- Grouping mode:
-        --   "bags"       (default) — Blizzard-style sections per bag/reagent
-        --   "categories"           — group items by category (Equipment,
+        --   "bags"       (default) - Blizzard-style sections per bag/reagent
+        --   "categories"           - group items by category (Equipment,
         --                            Consumables, etc.) regardless of bag,
         --                            with thin divider rows separating
         --                            each category's grid block
         bagMode = "bags",
 
         -- Bags-mode sub-option. When false (default), bag mode renders
-        -- two chunky sections — Bags + Reagents — merging all
+        -- two chunky sections - Bags + Reagents - merging all
         -- equippable bag slots into one grid. When true, render one
         -- thin-divider section per equipped bag (Backpack, Bag 1,
         -- Bag 2, ..., Reagent Bag), using the same divider chrome
@@ -42,8 +42,8 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
 
         -- Custom categories. Keys are auto-generated at creation time
         -- ("custom1", "custom2", ...). Values are { name, order }. Empty
-        -- by default; the management UI lives in Settings → Categories
-        -- (planned for v2 — storage exists already so v1 doesn't break
+        -- by default; the management UI lives in Settings > Categories
+        -- (planned for v2 - storage exists already so v1 doesn't break
         -- the data shape).
         customCategories = {},
 
@@ -56,7 +56,7 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         -- Money & Currency
         showTokens      = true,   -- tracked-currency (green) row at the bottom
         goldOnly        = false,  -- hide silver + copper in the money display
-        tokenAlignment  = "right", -- "left" | "center" | "right" — which edge
+        tokenAlignment  = "right", -- "left" | "center" | "right" - which edge
                                    -- the tracked-currency strip hugs
         useDefaultTitle = false,  -- show "Combined Backpack" instead of "BazBags"
 
@@ -98,7 +98,7 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
             end,
         },
     },
-    -- Bare slash with no subcommand toggles the panel — most common
+    -- Bare slash with no subcommand toggles the panel - most common
     -- intent and matches how addons like Bagnon/Baganator behave.
     defaultHandler = function()
         if addon.Bag and addon.Bag.Toggle then
@@ -127,7 +127,7 @@ local function GetLandingPage()
         description = "A lightweight combined bag panel that merges " ..
             "all bags into one window with collapsible sections per " ..
             "bag type. The reagent bag lives in the same panel as the " ..
-            "main bags — fold it away when you don't need it instead " ..
+            "main bags - fold it away when you don't need it instead " ..
             "of juggling a separate window.",
         features = "Single combined panel for bags + reagent bag. " ..
             "Collapsible sections per bag type, state persisted. " ..
@@ -145,7 +145,7 @@ local function GetLandingPage()
 end
 
 ---------------------------------------------------------------------------
--- Settings page — landing page sub-category
+-- Settings page - landing page sub-category
 ---------------------------------------------------------------------------
 
 local function GetSettingsPage()
@@ -156,7 +156,7 @@ local function GetSettingsPage()
             intro = {
                 order = 0.1,
                 type  = "lead",
-                text  = "Configure how the bag panel renders. Changes apply live — open the panel with /bbg to see them.",
+                text  = "Configure how the bag panel renders. Changes apply live - open the panel with /bbg to see them.",
             },
 
             layoutHeader = {
@@ -182,7 +182,7 @@ local function GetSettingsPage()
                 order = 3,
                 type  = "toggle",
                 name  = "Hide Empty Slots",
-                desc  = "Skip empty slots when rendering — shows only slots with items. Compact view; the panel shrinks vertically when many slots are empty.",
+                desc  = "Skip empty slots when rendering - shows only slots with items. Compact view; the panel shrinks vertically when many slots are empty.",
                 get   = function() return addon:GetSetting("hideEmpty") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("hideEmpty", val and true or false)
@@ -194,7 +194,7 @@ local function GetSettingsPage()
                 order = 3.5,
                 type  = "toggle",
                 name  = "Separate Each Bag",
-                desc  = "Bags-mode only. When on, renders one thin-divider section per equipped bag (Backpack, Bag 1, Bag 2, ..., Reagent Bag) — same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all bags merge into one Bags section + a Reagents section (the Blizzard-style default).",
+                desc  = "Bags-mode only. When on, renders one thin-divider section per equipped bag (Backpack, Bag 1, Bag 2, ..., Reagent Bag) - same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all bags merge into one Bags section + a Reagents section (the Blizzard-style default).",
                 get   = function() return addon:GetSetting("perBagSections") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("perBagSections", val and true or false)
@@ -239,7 +239,7 @@ local function GetSettingsPage()
                     LOW    = "Low",
                     MEDIUM = "Medium",
                     HIGH   = "High",
-                    DIALOG = "Dialog (default — above Settings)",
+                    DIALOG = "Dialog (default - above Settings)",
                 },
                 get = function() return addon:GetSetting("strata") or "DIALOG" end,
                 set = function(_, val)
@@ -259,7 +259,7 @@ local function GetSettingsPage()
                 order = 6,
                 type  = "select",
                 name  = "Mode",
-                desc  = "Bags shows one collapsible section per equipped bag (the default Blizzard layout). Categories regroups items by what they are — Equipment, Consumables, Trade Goods, Quest Items, Junk, Other — regardless of which bag holds them, with thin divider rows separating each group.",
+                desc  = "Bags shows one collapsible section per equipped bag (the default Blizzard layout). Categories regroups items by what they are - Equipment, Consumables, Trade Goods, Quest Items, Junk, Other - regardless of which bag holds them, with thin divider rows separating each group.",
                 values = {
                     bags       = "Bags (per-bag sections)",
                     categories = "Categories (group by item type)",
@@ -297,7 +297,7 @@ local function GetSettingsPage()
                 order = 11,
                 type  = "toggle",
                 name  = "Gold Only",
-                desc  = "Hide silver and copper in the gold display next to the search bar — keeps just the gold total. Useful at high gold totals where the silver/copper digits add visual noise.",
+                desc  = "Hide silver and copper in the gold display next to the search bar - keeps just the gold total. Useful at high gold totals where the silver/copper digits add visual noise.",
                 get   = function() return addon:GetSetting("goldOnly") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("goldOnly", val and true or false)

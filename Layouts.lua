@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------
--- BazBags — Category layout module
+-- BazBags - Category layout module
 --
 -- One layout: thin full-width divider rows mark each category, items
 -- pack into a regular grid below. Each category always starts a fresh
@@ -29,7 +29,7 @@ local TITLE_COLOR          = { 1.00, 0.82, 0.00 }    -- suite gold, matches head
 local DIVIDER_LINE_COLOR   = { 0.55, 0.42, 0.18, 0.85 }
 
 ---------------------------------------------------------------------------
--- Divider-row pool — one per category. A divider is a thin (~18 px)
+-- Divider-row pool - one per category. A divider is a thin (~18 px)
 -- full-width Button containing a chevron + category name + a subtle
 -- horizontal line that fades out to the right edge. Reads like the
 -- title rule on a chapter divider.
@@ -81,9 +81,9 @@ local function GetOrCreateDividerRow(parent, key)
 end
 
 ---------------------------------------------------------------------------
--- Drop-slot pool — full-size empty bag slot with a gold "+" centered,
+-- Drop-slot pool - full-size empty bag slot with a gold "+" centered,
 -- one per category. Visible only while the cursor is holding an item.
--- Drop the item into the slot to pin it to that category — feels like
+-- Drop the item into the slot to pin it to that category - feels like
 -- dragging into the category itself rather than aiming at a tiny
 -- target on the divider.
 ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ local function GetOrCreateDropSlot(parent, key, slotSize)
     slot.plus:SetText("+")
     slot.plus:SetTextColor(unpack(TITLE_COLOR))
 
-    -- Subtle hover glow — gold tint on a centered overlay so the slot
+    -- Subtle hover glow - gold tint on a centered overlay so the slot
     -- pulses when the cursor enters, telegraphing the drop affordance.
     slot.hi = slot:CreateTexture(nil, "HIGHLIGHT")
     slot.hi:SetAllPoints()
@@ -194,12 +194,12 @@ function Layouts.HideAll()
 end
 
 ---------------------------------------------------------------------------
--- Per-bag rendering — same thin-divider chrome as Categories mode,
+-- Per-bag rendering - same thin-divider chrome as Categories mode,
 -- but groups items by their equipped bag instead of by item type.
 -- One divider per equipped bag (Backpack / Bag 1 / Bag 2 / ... /
 -- Reagent Bag), each followed by that bag's slot grid.
 --
--- Reuses the same dividerRows pool as Categories mode — divider keys
+-- Reuses the same dividerRows pool as Categories mode - divider keys
 -- are namespaced ("bag_<id>" vs "<categoryKey>") so they coexist
 -- without collision. Layouts.HideAll cleans both up when switching
 -- back to default Bags mode.
@@ -333,7 +333,7 @@ function Layouts.RenderPerBag(ctx)
 end
 
 ---------------------------------------------------------------------------
--- Render — the only category layout.
+-- Render - the only category layout.
 --
 -- Each category gets a thin full-width divider row, then its items
 -- in a regular grid below. Items wrap inside the category. The next
@@ -362,8 +362,8 @@ function Layouts.Render(ctx)
     local catList    = Categories.GetOrdered()
 
     -- Categorize mode (toggled via left-click on the bag's portrait)
-    -- reveals every category — including hidden ones and ones with
-    -- zero items — and shows a gold "+" drop slot at the end of each
+    -- reveals every category - including hidden ones and ones with
+    -- zero items - and shows a gold "+" drop slot at the end of each
     -- grid for click-to-pin / drag-to-pin. Outside of categorize
     -- mode the bag stays clean: no drop slots, no empty categories,
     -- no hidden ones.
@@ -371,7 +371,7 @@ function Layouts.Render(ctx)
                             and addon.Bag.IsCategorizeMode()) and true or false
 
     -- A `hidden = true` flag on a category suppresses it from the bag
-    -- panel during normal use — no divider, no items, no drop slot.
+    -- panel during normal use - no divider, no items, no drop slot.
     -- During categorize mode hidden categories DO render (so the user
     -- can pin items into them by drop slot) but get a grey "(hidden)"
     -- tag on the divider so they're visually distinguishable.

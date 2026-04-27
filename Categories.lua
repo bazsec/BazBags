@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------
--- BazBags — Categories module
+-- BazBags - Categories module
 --
 -- Owns the category data model + classification logic. Categories are
 -- persisted in the `categories` saved variable as { [key] = { name,
@@ -7,8 +7,8 @@
 -- so out-of-the-box users get six built-in groupings. Default
 -- categories are renameable / reorderable / deletable like custom
 -- ones, but the auto-classifier in Classify() is tied to their
--- *key* (not label) — so renaming "Equipment" → "Gear" doesn't
--- break the Weapon/Armor → equipment routing.
+-- *key* (not label) - so renaming "Equipment" > "Gear" doesn't
+-- break the Weapon/Armor > equipment routing.
 ---------------------------------------------------------------------------
 
 local ADDON_NAME = "BazBags"
@@ -19,7 +19,7 @@ addon.Categories = addon.Categories or {}
 local Categories = addon.Categories
 
 ---------------------------------------------------------------------------
--- Factory defaults — the categories any first-time user starts with.
+-- Factory defaults - the categories any first-time user starts with.
 -- The Reset Defaults button in the Settings page restores from this
 -- table. Order is spaced by 10 so user-added categories can slot in
 -- between (Reset preserves their `order` if Soft mode).
@@ -50,7 +50,7 @@ Categories.ALL_BAG_IDS = {
 -- Called once at addon load. If the persisted `categories` map is
 -- empty (first run) or missing any default keys (user upgraded from
 -- a build that didn't track them), backfill from FACTORY_DEFAULTS.
--- Never overwrites user-edited names or orders — only fills holes.
+-- Never overwrites user-edited names or orders - only fills holes.
 ---------------------------------------------------------------------------
 
 function Categories.EnsureDefaults()
@@ -118,8 +118,8 @@ function Categories.Reorder(key, newOrder)
     addon:SetSetting("categories", cats)
 end
 
--- Hidden categories still exist in the data model — items can still be
--- classified/pinned to them — but the bag layout skips them entirely
+-- Hidden categories still exist in the data model - items can still be
+-- classified/pinned to them - but the bag layout skips them entirely
 -- (no divider, no items, no drop slot). Useful for "Junk" so grey
 -- items don't visually clutter the bag while still occupying their
 -- real container slots, and for stashing items the user wants out of
@@ -161,7 +161,7 @@ end
 
 -- Removes a category outright. Items pinned to it via itemCategories
 -- are unpinned (drop back to auto-classify) so they still appear in
--- the bag — just under whatever default category their class implies.
+-- the bag - just under whatever default category their class implies.
 function Categories.Delete(key)
     local cats = addon:GetSetting("categories") or {}
     if not cats[key] then return end
@@ -180,8 +180,8 @@ function Categories.Delete(key)
 end
 
 -- ResetDefaults
---   wipeCustoms = false → restore default labels + order, keep customs + pins
---   wipeCustoms = true  → also delete all user-created categories +
+--   wipeCustoms = false > restore default labels + order, keep customs + pins
+--   wipeCustoms = true  > also delete all user-created categories +
 --                          itemCategories, leaving only factory state
 function Categories.ResetDefaults(wipeCustoms)
     local cats = addon:GetSetting("categories") or {}
@@ -232,13 +232,13 @@ end
 -- Classify
 --
 -- Maps a single item to a category key. Lookup chain:
---   1. itemCategories[itemID]    — explicit pin wins
---   2. quality == 0              → junk
---   3. ItemClass-based rules     → equipment / consumables / tradegoods / questitems
---   4. catch-all                 → other
+--   1. itemCategories[itemID]    - explicit pin wins
+--   2. quality == 0              > junk
+--   3. ItemClass-based rules     > equipment / consumables / tradegoods / questitems
+--   4. catch-all                 > other
 --
 -- The default keys (equipment, consumables, etc.) keep working even if
--- the user renames or reorders them — the classifier only cares about
+-- the user renames or reorders them - the classifier only cares about
 -- the *key*, not the displayed label. If the user has deleted a
 -- default category entirely, items that would have landed there fall
 -- through to "other" (assuming "other" still exists; otherwise the
@@ -285,13 +285,13 @@ end
 
 ---------------------------------------------------------------------------
 -- Backwards-compatible alias for callers that still ask for GetOrdered.
--- New code should call GetAll directly (returns the same shape — list
+-- New code should call GetAll directly (returns the same shape - list
 -- of { key, name, order, isDefault }).
 ---------------------------------------------------------------------------
 
 function Categories.GetOrdered()
     local list = Categories.GetAll()
-    -- Layouts.Render expects { key, title, order } — copy `name` to
+    -- Layouts.Render expects { key, title, order } - copy `name` to
     -- `title` for backwards compat.
     for _, entry in ipairs(list) do
         entry.title = entry.name
@@ -304,7 +304,7 @@ end
 --
 -- Walks every bag, classifies each occupied slot, returns a
 -- { [categoryKey] = { {bagID, slotID}, ... } } table. Empty slots are
--- always skipped — they have no category to live in.
+-- always skipped - they have no category to live in.
 ---------------------------------------------------------------------------
 
 function Categories.GetPairsByCategory()

@@ -1,11 +1,11 @@
 ---------------------------------------------------------------------------
--- BazBags — bag panel UI
+-- BazBags - bag panel UI
 --
 -- A faithful clone of Blizzard's combined-bag panel chrome:
---   * Frame: BazCore:CreatePortraitWindow → PortraitFrameFlatTemplate
+--   * Frame: BazCore:CreatePortraitWindow > PortraitFrameFlatTemplate
 --   * Slots: ContainerFrameItemButtonTemplate (Blizzard's own template,
 --            including ItemSlotBackgroundCombinedBagsTemplate background
---            via :Initialize() — that's what fixes the "blue tint" on
+--            via :Initialize() - that's what fixes the "blue tint" on
 --            empty slots; the leather/brown atlas only renders when the
 --            slot's parent reports IsCombinedBagContainer() == true)
 --   * Money:  ContainerMoneyFrameTemplate
@@ -13,7 +13,7 @@
 --   * Sort:   bags-button-autosort-up/down atlases
 --
 -- Layered on top of the clone: collapsible sections per bag type
--- (Bags + Reagents) — fold either away in the same window instead
+-- (Bags + Reagents) - fold either away in the same window instead
 -- of the separate-window UX Blizzard ships.
 ---------------------------------------------------------------------------
 
@@ -25,7 +25,7 @@ local Bag = {}
 addon.Bag = Bag
 
 ---------------------------------------------------------------------------
--- Layout constants — chosen to match Blizzard's combined bag exactly.
+-- Layout constants - chosen to match Blizzard's combined bag exactly.
 ---------------------------------------------------------------------------
 
 local DEFAULT_COLS      = 8       -- starting column count when no setting saved
@@ -33,11 +33,11 @@ local SLOT_SIZE         = 37      -- ContainerFrameItemButtonTemplate native siz
 local SLOT_SPACING_X    = 5       -- Blizzard's ITEM_SPACING_X
 local SLOT_SPACING_Y    = 4
 local SECTION_HEADER_H  = 20
-local TOP_PAD           = 60      -- below title bar — leaves room for search/sort row
+local TOP_PAD           = 60      -- below title bar - leaves room for search/sort row
 local BOTTOM_PAD        = 64      -- above footer (room for money + optional token row)
 local SIDE_PAD          = 12
 
--- Live setting readers — re-evaluated on every Refresh so the panel
+-- Live setting readers - re-evaluated on every Refresh so the panel
 -- reshapes immediately when the user moves the Columns slider or
 -- toggles Hide Empty on the General Settings page.
 local function GetCols()
@@ -53,7 +53,7 @@ local function PanelWidthFor(cols)
     return cols * SLOT_SIZE + math.max(0, cols - 1) * SLOT_SPACING_X + SIDE_PAD * 2
 end
 
--- Bag type → section definition. Order is the visual order top-to-bottom.
+-- Bag type > section definition. Order is the visual order top-to-bottom.
 local SECTIONS = {
     {
         key    = "bags",
@@ -75,7 +75,7 @@ local SECTIONS = {
     },
 }
 
--- Category data and layouts live in their own modules — see
+-- Category data and layouts live in their own modules - see
 -- Categories.lua and Layouts.lua. Bag.lua keeps the panel chrome,
 -- the bag-mode rendering, and the Refresh dispatcher.
 
@@ -92,7 +92,7 @@ local categorizeMode = false      -- toggled via left-click on the portrait;
                                   -- when on, the category layout shows drop
                                   -- slots + empty categories so the user can
                                   -- pin items by dropping them. In-memory
-                                  -- only — resets to off on /reload.
+                                  -- only - resets to off on /reload.
 
 -- Sections is exposed so the Layouts module can hide them when it
 -- takes over (e.g. switching from Sections to Flow mode). Other
@@ -120,7 +120,7 @@ end
 --
 -- Each slot needs to be parented to a frame whose GetID() returns the
 -- bag ID. The slot template's mixin reads `parent:IsCombinedBagContainer()`
--- in Initialize() — when that returns true, it adds the proper
+-- in Initialize() - when that returns true, it adds the proper
 -- ItemSlotBackgroundCombinedBagsTemplate texture (leather/brown art),
 -- which is what makes empty slots look like Blizzard's combined bag
 -- instead of the default ItemButton "blue square" appearance.
@@ -161,7 +161,7 @@ local function GetOrCreateSlotButton(bagID, slotID)
         btn:SetID(slotID)
     end
 
-    -- Shift+right-click → category context menu. PreClick fires before
+    -- Shift+right-click > category context menu. PreClick fires before
     -- the secure action handler (which would normally use the item on
     -- right-click), so we can show our menu without losing the rest of
     -- the slot's standard behaviour. shift+right is unbound by default
@@ -209,9 +209,9 @@ function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
 
         for _, cat in ipairs(cats) do
             local label = cat.name or cat.key
-            -- Hidden categories still appear in the menu — pinning to
+            -- Hidden categories still appear in the menu - pinning to
             -- a hidden category is a deliberate "stash this item out
-            -- of view" action — but get a grey suffix so the user
+            -- of view" action - but get a grey suffix so the user
             -- knows what they're picking.
             if cat.hidden then
                 label = label .. "  |cff888888(hidden)|r"
@@ -243,7 +243,7 @@ function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
 end
 
 ---------------------------------------------------------------------------
--- Slot rendering — mirrors ContainerFrameMixin:UpdateItems exactly.
+-- Slot rendering - mirrors ContainerFrameMixin:UpdateItems exactly.
 ---------------------------------------------------------------------------
 
 local function UpdateSlot(btn, bagID, slotID)
@@ -359,11 +359,11 @@ local function BuildFrame()
         savedKey       = "position",
         uiSpecialFrame = true,
         -- DIALOG by default so the bag floats above the BazCore
-        -- Settings window (HIGH) — see the Strata setting in
-        -- Settings → Layout for picking a different layer.
+        -- Settings window (HIGH) - see the Strata setting in
+        -- Settings > Layout for picking a different layer.
         strata         = addon:GetSetting("strata") or "DIALOG",
 
-        -- Hover the portrait → tooltip explaining the click actions.
+        -- Hover the portrait > tooltip explaining the click actions.
         -- Left-click sorts the bag (Blizzard's C_Container.SortBags).
         -- Middle-click toggles Categorize mode (drop slots + every
         -- category visible, for batch-pinning items). Right-click
@@ -391,23 +391,23 @@ local function BuildFrame()
         end,
     })
 
-    -- Search box — Blizzard's BagSearchBoxTemplate handles the icon,
+    -- Search box - Blizzard's BagSearchBoxTemplate handles the icon,
     -- placeholder text, focus/blur visuals, and live filtering of
     -- ContainerFrameItemButton instances via SetMatchesSearch. The
     -- right edge anchors to the money frame's LEFT so the search box
     -- automatically shrinks when the player's gold total grows wider.
-    -- (We dropped Blizzard's auto-sort 'broom' button — /bbg sort
+    -- (We dropped Blizzard's auto-sort 'broom' button - /bbg sort
     -- still runs C_Container.SortBags on demand, and the corner real
     -- estate is now used for the money display.)
     frame.search = CreateFrame("EditBox", nil, frame, "BagSearchBoxTemplate")
     frame.search:SetHeight(18)
     frame.search:SetPoint("TOPLEFT", 62, -37)
 
-    -- Token (tracked-currency) row — full-width green-bordered box
+    -- Token (tracked-currency) row - full-width green-bordered box
     -- below the money row. Mirrors Blizzard's BackpackTokenFrame
     -- visually but built ourselves so we don't fight Blizzard for
     -- ownership of the singleton BackpackTokenFrame instance.
-    -- Tracked-currency container. Holds an array of "row frames" —
+    -- Tracked-currency container. Holds an array of "row frames" -
     -- each row is its own green-bordered pill with its own tokens.
     -- When the user watches more currencies than fit on a single
     -- row, additional rows are added above so we can carry as many
@@ -418,14 +418,14 @@ local function BuildFrame()
 
     -- Solid backing layer behind the panel's translucent stock
     -- background. PortraitFrameFlatTemplate's Bg uses
-    -- PANEL_BACKGROUND_COLOR which has built-in alpha (~0.7) — so
+    -- PANEL_BACKGROUND_COLOR which has built-in alpha (~0.7) - so
     -- frame.Bg:SetAlpha(1) still reads as see-through. This extra
     -- texture sits *under* frame.Bg at sub-level -1 so the dark
     -- overlay still tints the panel, but at 100% opacity the result
     -- is fully solid. Both layers scale together with the bgAlpha
     -- setting (Refresh applies SetAlpha to both).
     --
-    -- Uses Blizzard's "spec-background" atlas — the same textured
+    -- Uses Blizzard's "spec-background" atlas - the same textured
     -- mid-grey backdrop the BazCore standalone options window uses,
     -- so the bag panel matches the settings page rather than reading
     -- as a stark dark void.
@@ -434,7 +434,7 @@ local function BuildFrame()
     frame.solidBg:SetPoint("TOPLEFT",     2, -20)
     frame.solidBg:SetPoint("BOTTOMRIGHT", -2, 3)
 
-    -- Money frame — Blizzard's exact gold/silver/copper readout.
+    -- Money frame - Blizzard's exact gold/silver/copper readout.
     -- Anchored where Blizzard's auto-sort button used to live so the
     -- player's gold sits next to the title bar instead of taking a
     -- whole row at the bottom of the panel.
@@ -443,7 +443,7 @@ local function BuildFrame()
     -- the vertical centre lines up with the search bar's centre
     -- regardless of the money frame's intrinsic height (which varies
     -- with Blizzard's template). Search bar centre:
-    --   TOPLEFT y = -37, height 18  →  centre y = -46
+    --   TOPLEFT y = -37, height 18  >  centre y = -46
     -- Pinning money's right-middle to (-12, -46) puts both centres on
     -- the same horizontal line.
     frame.money = CreateFrame("Frame", nil, frame, "ContainerMoneyFrameTemplate")
@@ -453,7 +453,7 @@ local function BuildFrame()
 
     -- Match the money frame's gold-coinbox border height to the
     -- search bar (plus 1 px) so the chrome reads as the same row,
-    -- with the gold border just barely taller — pure-flat search bar
+    -- with the gold border just barely taller - pure-flat search bar
     -- looks slightly shorter than the textured coinbox at equal
     -- heights, and 1 px makes the optical illusion balance out.
     -- ContainerMoneyFrameTemplate's Border child is
@@ -474,7 +474,7 @@ local function BuildFrame()
     -- items than the maxHeight setting allows, scrollFrame clips the
     -- overflow and the mouse wheel handler shifts the visible slice.
     -- Positioned between the search bar (top chrome) and the
-    -- money/tokens row (bottom chrome) — its exact height is
+    -- money/tokens row (bottom chrome) - its exact height is
     -- recomputed every Refresh. We deliberately use a bare ScrollFrame
     -- without a scrollbar template (Blizzard's modern minimal scrollbar
     -- is wired to ScrollBox, not plain ScrollFrame) and rely on the
@@ -500,7 +500,7 @@ local function BuildFrame()
 
     -- Divider rule between the scroll area and the footer chrome
     -- (money + tokens). Without it the last row of items reads as
-    -- bleeding into the gold / currency strip — this gives the eye
+    -- bleeding into the gold / currency strip - this gives the eye
     -- a clear "end of bag content" line. Same warm-gold tone as the
     -- category dividers inside the scroll area for consistency.
     frame.contentDivider = frame:CreateTexture(nil, "ARTWORK")
@@ -525,7 +525,7 @@ end
 -- Bag-change popup
 --
 -- A small floating panel anchored under the portrait. Holds five bag
--- slot buttons — the four equipped bag slots plus the reagent bag.
+-- slot buttons - the four equipped bag slots plus the reagent bag.
 -- Drag a bag from your inventory onto a slot to equip it; drag a slot
 -- icon off to clear it. Mirrors what Blizzard surfaces via the
 -- character pane's "Bags" tab, just one click closer.
@@ -536,7 +536,7 @@ end
 -- Earlier we hardcoded {20, 21, 22, 23, 24} (the INVSLOT_BAG_* values
 -- from TWW 11.x), but Midnight 12.0 renumbered the equipped slots:
 -- INVSLOT_BAG_* aren't exported as globals anymore, and slot 20 in
--- particular is now a profession tool slot — that's why the popup
+-- particular is now a profession tool slot - that's why the popup
 -- was showing alchemy tools instead of bags.
 --
 -- C_Container.ContainerIDToInventoryID is the canonical mapping from
@@ -596,7 +596,7 @@ local function BuildBagSlotButton(parent, invSlot, isReagent)
     -- BazCore:CreateItemButton hands us an ItemButton-styled frame
     -- (icon + quality border + slot background + highlight + pushed)
     -- without going through ItemButtonTemplate / BagSlotButtonTemplate
-    -- — both of those exist in Blizzard's XML but aren't exposed as
+    -- - both of those exist in Blizzard's XML but aren't exposed as
     -- runtime CreateFrame targets in retail Midnight. The bag-slot
     -- background uses the same "bags-item-slot64" atlas as Blizzard's
     -- combined bag, so empty slots show the familiar slot artwork.
@@ -622,7 +622,7 @@ local function BuildBagSlotButton(parent, invSlot, isReagent)
 
     btn:SetScript("OnClick", function(self)
         -- If the cursor has an item, drop it into this slot.
-        -- Otherwise no-op (don't toggle a bag — that's not the
+        -- Otherwise no-op (don't toggle a bag - that's not the
         -- popup's purpose).
         if CursorHasItem() then
             PutItemInBag(self.invSlot)
@@ -667,7 +667,7 @@ local function BuildBagChangePopup()
 
     -- Position is set per-Show in PositionBagPopup so we adapt to the
     -- bag's current screen position (above when there's room, below
-    -- otherwise) — see the comment block on PositionBagPopup.
+    -- otherwise) - see the comment block on PositionBagPopup.
 
     -- Header label
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -744,7 +744,7 @@ end
 -- drop slot at the end of each grid. Click a drop slot or release a
 -- drag onto it to pin the held item. Toggle off to return to the
 -- normal "only categories with items" view. Triggered by left-click
--- on the bag's portrait icon. State is in-memory only — every fresh
+-- on the bag's portrait icon. State is in-memory only - every fresh
 -- /reload starts in normal mode.
 ---------------------------------------------------------------------------
 
@@ -765,7 +765,7 @@ end
 -- helper re-shows SilverButton + CopperButton based on the money
 -- value, which silently clobbers any hide we did during the previous
 -- Refresh. From the user's perspective the Gold Only toggle "doesn't
--- save" — the setting is persisted, but Blizzard's auto-update keeps
+-- save" - the setting is persisted, but Blizzard's auto-update keeps
 -- bringing silver/copper back the next time their gold changes.
 --
 -- ApplyMoneyState centralises the visibility + anchor logic so we can
@@ -808,7 +808,7 @@ end)
 -- Tracked-currency row update
 --
 -- Reads C_CurrencyInfo.GetBackpackCurrencyInfo iteratively until it
--- returns nil. Per-currency entries are pooled — we lazily create
+-- returns nil. Per-currency entries are pooled - we lazily create
 -- new ones if the user starts watching more, and hide the trailing
 -- ones if they unwatch some.
 --
@@ -826,14 +826,14 @@ local TOKEN_TEXT_ICON_GAP = 3    -- horizontal spacing between count text and it
 local TOKEN_GAP          = 10    -- horizontal spacing BETWEEN currency entries; tuned so short and long counts look evenly spaced
 local TOKEN_RIGHT_PAD    = 14    -- inset from green border's right cap to first icon
 local TOKEN_LEFT_PAD     = 14    -- mirror right pad so the green box looks symmetric
-local TOKEN_TEXT_H       = 10    -- BackpackTokenTemplate.Count Size y="10" — keeps the glyphs vertically centered with the icon
+local TOKEN_TEXT_H       = 10    -- BackpackTokenTemplate.Count Size y="10" - keeps the glyphs vertically centered with the icon
 
 local function GetOrCreateTokenEntry(parent, idx)
     if parent.entries[idx] then return parent.entries[idx] end
 
     local btn = CreateFrame("Button", nil, parent)
     btn:SetHeight(TOKEN_ENTRY_H)
-    -- Width is set per-render in UpdateTokens — depends on the
+    -- Width is set per-render in UpdateTokens - depends on the
     -- count text length so entries don't carry dead space.
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
@@ -843,7 +843,7 @@ local function GetOrCreateTokenEntry(parent, idx)
 
     -- Count text height fixed so its glyph baseline aligns with the
     -- icon center. Anchor RIGHT to icon.LEFT (centered y) and LEFT to
-    -- the button's LEFT — text fills the button width with right-
+    -- the button's LEFT - text fills the button width with right-
     -- alignment, so the dynamic button width effectively sizes the
     -- text region.
     btn.count = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -878,7 +878,7 @@ end
 local TOKEN_ROW_GAP    = 4    -- vertical gap between stacked token rows
 local TOKEN_ROW_HEIGHT = nil  -- set in UpdateTokens to match money height
 
--- Build (or fetch) a row frame — its own green-bordered pill that
+-- Build (or fetch) a row frame - its own green-bordered pill that
 -- can hold a horizontal strip of token entries.
 local function GetOrCreateTokenRow(parent, idx)
     if parent.rows[idx] then return parent.rows[idx] end
@@ -896,7 +896,7 @@ local function GetOrCreateTokenRow(parent, idx)
         ContainerFrameCurrencyBorderMixin.OnLoad(row.border)
     end
 
-    -- Click anywhere on a row → open Blizzard's TokenFrame for
+    -- Click anywhere on a row > open Blizzard's TokenFrame for
     -- managing Show on Backpack.
     row:EnableMouse(true)
     row:SetScript("OnMouseDown", function()
@@ -1024,7 +1024,7 @@ function Bag:Refresh()
     -- so width/height changes grow toward bottom-right rather than
     -- expanding outward from the centre. Without this, toggling
     -- Categorize mode (or any setting that changes height) visually
-    -- shifts the title bar / portrait icon — reads as jittery.
+    -- shifts the title bar / portrait icon - reads as jittery.
     -- BazCore's drag-stop handler re-saves whichever anchor GetPoint
     -- returns, so converting to TOPLEFT here is durable: the next
     -- drag will persist a TOPLEFT-anchored position.
@@ -1036,7 +1036,7 @@ function Bag:Refresh()
         end
     end
 
-    -- Live settings — re-read on every refresh so toggling the Columns
+    -- Live settings - re-read on every refresh so toggling the Columns
     -- slider or Hide Empty toggle applies immediately.
     local cols       = GetCols()
     local hideEmpty  = HideEmpty()
@@ -1066,7 +1066,7 @@ function Bag:Refresh()
         end
     end
 
-    -- Width the inner content gets — match scrollChild to scrollFrame.
+    -- Width the inner content gets - match scrollChild to scrollFrame.
     -- ScrollFrame's width comes from its TOPLEFT/TOPRIGHT anchors
     -- (= frame width minus the two SIDE_PADs), so we read it back
     -- rather than recomputing.
@@ -1075,7 +1075,7 @@ function Bag:Refresh()
     end
 
     -- Content y-cursor starts at 0 (top of scrollChild) instead of
-    -- -TOP_PAD relative to frame — the chrome lives outside the
+    -- -TOP_PAD relative to frame - the chrome lives outside the
     -- scroll area now.
     local y = 0
 
@@ -1114,7 +1114,7 @@ function Bag:Refresh()
         })
     elseif addon:GetSetting("perBagSections")
            and addon.Layouts and addon.Layouts.RenderPerBag then
-        -- Bags mode + Separate Each Bag — render one thin-divider
+        -- Bags mode + Separate Each Bag - render one thin-divider
         -- section per equipped bag, sharing the divider chrome with
         -- Categories mode.
         for _, def in ipairs(SECTIONS) do
@@ -1230,7 +1230,7 @@ function Bag:Refresh()
     -- frame bottom, divider sits 3 px below the scroll area):
     --   gap between divider and tokens top = bottomPad - 33
     -- bottomPad = 44 yields ~11 px of breathing room above the
-    -- currency strip — earlier 30 left only ~1 px and the items above
+    -- currency strip - earlier 30 left only ~1 px and the items above
     -- looked like they were stacked right on top of the strip.
     local showTokens = addon:GetSetting("showTokens") ~= false
     local bottomPad  = showTokens and 44 or 12
@@ -1262,13 +1262,13 @@ function Bag:Refresh()
     -- so multi-row currency strips don't get clipped.
     frame:SetHeight(TOP_PAD + scrollH + bottomPad)
 
-    -- Title — toggle between BazBags and Blizzard's default.
+    -- Title - toggle between BazBags and Blizzard's default.
     if frame.SetTitle then
         local useDefault = addon:GetSetting("useDefaultTitle") and true or false
         frame:SetTitle(useDefault and (COMBINED_BAG_TITLE or "Combined Backpack") or "BazBags")
     end
 
-    -- Tracked currencies — only update + show if the user enabled
+    -- Tracked currencies - only update + show if the user enabled
     -- the row AND has at least one currency marked Show on Backpack.
     -- We pass the available row width (panel width minus the same
     -- 12 px outer padding) so UpdateTokens can pack entries into
@@ -1286,7 +1286,7 @@ function Bag:Refresh()
         local totalH     = rowCount * rowHeight + math.max(0, rowCount - 1) * TOKEN_ROW_GAP
         frame.tokens:Show()
         frame.tokens:ClearAllPoints()
-        -- Currency strip alignment — left, center, or right edge of the
+        -- Currency strip alignment - left, center, or right edge of the
         -- panel. Internal token packing (right-to-left within each row)
         -- doesn't change; only the strip's anchor point on the panel.
         local align = addon:GetSetting("tokenAlignment") or "right"
@@ -1312,7 +1312,7 @@ function Bag:Refresh()
 
     -- Money frame lives in the top-right chrome (anchored once in
     -- BuildFrame). Per refresh we just update its values and the
-    -- gold-only state — its position never changes. Width auto-fits
+    -- gold-only state - its position never changes. Width auto-fits
     -- visible content via the deferred SetWidth at the end so the
     -- search bar (anchored to money's LEFT) shrinks/grows in lock-step.
     -- The "Show Money" toggle was removed in favour of always showing
@@ -1328,13 +1328,13 @@ function Bag:Refresh()
             -- Always re-apply our gold-only state. The hooksecurefunc on
             -- MoneyFrame_UpdateMoney catches event-driven refreshes
             -- (PLAYER_MONEY etc.) but Refresh calls MoneyFrame_Update
-            -- directly, which doesn't go through UpdateMoney — so
+            -- directly, which doesn't go through UpdateMoney - so
             -- without this explicit call the Gold Only toggle had no
             -- effect when triggered from the Settings page.
             ApplyMoneyState(frame.money)
 
             -- Tighten the frame width to fit visible content. See the
-            -- detailed comment block elsewhere — MoneyFrame_Update's
+            -- detailed comment block elsewhere - MoneyFrame_Update's
             -- own width formula adds an iconWidth pad that nothing
             -- fills, so the gold border ends up wider than the coins.
             local mf = frame.money
@@ -1370,7 +1370,7 @@ end
 -- with the now-settled layout.
 local function ShowPanel(self)
     -- Always start at the top of the scroll area when the panel is
-    -- shown — without this, ScrollFrame can come up at a stale scroll
+    -- shown - without this, ScrollFrame can come up at a stale scroll
     -- position (e.g. saved from a prior session) and items render
     -- below the visible window, making the panel look empty.
     if frame.scrollFrame and frame.scrollFrame.SetVerticalScroll then
@@ -1431,7 +1431,7 @@ events:RegisterEvent("ITEM_LOCK_CHANGED")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CURRENCY_DISPLAY_UPDATE")    -- watched-currency VALUE changes
-events:RegisterEvent("INVENTORY_SEARCH_UPDATE")    -- search box text → re-evaluate isFiltered
+events:RegisterEvent("INVENTORY_SEARCH_UPDATE")    -- search box text > re-evaluate isFiltered
 events:SetScript("OnEvent", ScheduleRefresh)
 
 -- "Show on Backpack" toggles fire an EventRegistry callback rather
@@ -1445,7 +1445,7 @@ end
 ---------------------------------------------------------------------------
 -- Override Blizzard's bag toggles so the B key (and any addon that
 -- calls these functions) opens BazBags instead of Blizzard's combined
--- bag. We replace ToggleAllBags / OpenAllBags / OpenBackpack — every
+-- bag. We replace ToggleAllBags / OpenAllBags / OpenBackpack - every
 -- way Blizzard's UI normally triggers the bag opens lands on us.
 --
 -- Hooks happen at file-scope so they're in place before PLAYER_LOGIN.
@@ -1499,7 +1499,7 @@ BazCore:QueueForLogin(HookBlizzardBagToggles)
 -- Blizzard caps the number of currencies you can mark "Show on
 -- Backpack" via floor(BackpackTokenFrame.width / 50). Their bag is
 -- narrow so the cap is small. BazBags re-flows currencies into
--- multiple rows so we don't actually need a cap at all — patch
+-- multiple rows so we don't actually need a cap at all - patch
 -- BackpackTokenFrame:GetMaxTokensWatched to return a huge number
 -- so the Currency UI never refuses a toggle.
 --

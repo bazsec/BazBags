@@ -106,7 +106,7 @@ A search box at the top-left filters every bag at once - type a partial name, it
 *   **Frame Strata** (Low / Medium / High / Dialog)
 *   **Hide Empty Slots** (Bags mode)
 *   **Use Default Title** (BazBags vs Combined Backpack)
-*   **Top-anchored frame** - resizes grow downward, not from the centre, so the title bar / portrait stays put when toggling Categorize mode
+*   **Steady title bar** — when the panel resizes (toggling Categorize mode, changing modes, etc.) it grows downward instead of expanding outward, so the title bar and portrait icon stay put
 
 ### Bag-Change Popup
 
@@ -153,10 +153,10 @@ Search for **BazBags**. BazCore will install automatically as a dependency.
 ## Compatibility
 
 *   **WoW Version:** Retail 12.0 (Midnight)
-*   **Native item buttons** - uses ContainerFrameItemButtonTemplate so all standard item interactions work (cooldown sweep, quality border, drag/drop, click-to-use, shift-click to link)
-*   **Hooks Blizzard's bag toggles** - `ToggleAllBags`, `OpenAllBags`, `OpenBackpack`, `CloseAllBags` all open BazBags so the B key + every other addon's bag-toggle calls land here
-*   **Removes Blizzard's Show-on-Backpack token cap** for tracked currencies
-*   **Combat-safe** - no protected frame mutations during combat
+*   **Native item buttons** — cooldown sweep, quality borders, drag/drop, click-to-use, shift-click to link in chat all behave exactly as in Blizzard's default bags
+*   **Replaces Blizzard's combined bag** — the B key, the minimap bag icon, and any addon that opens bags all open BazBags
+*   **No cap on tracked currencies** — Blizzard limits how many you can show on the backpack; BazBags removes the cap and packs them into multiple rows
+*   **Combat-safe** — no protected-frame interactions during combat
 
 ***
 

@@ -230,8 +230,22 @@ if BazCore.QueueForLogin then
             createButtonText = "Create New Category",
 
             onReset = function()
-                addon.Categories.ResetDefaults(false)
-                RefreshAll()
+                -- Reset is destructive: presets are restored but any
+                -- user-tweaked names / order changes are gone. Gate
+                -- behind a confirm so an accidental click doesn't
+                -- silently overwrite a polished setup.
+                if BazCore.Confirm then
+                    BazCore:Confirm({
+                        title       = "Reset categories?",
+                        body        = "Reset every category back to its default name and order? Your tweaks to category names and ordering are wiped. Custom (user-created) categories are preserved.",
+                        acceptLabel = "Reset",
+                        acceptStyle = "destructive",
+                        onAccept    = function()
+                            addon.Categories.ResetDefaults(false)
+                            RefreshAll()
+                        end,
+                    })
+                end
             end,
             resetButtonText = "Reset to Defaults",
 

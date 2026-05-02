@@ -56,17 +56,9 @@ end
 -- with the category name above whatever this returns.
 ---------------------------------------------------------------------------
 
--- One short paragraph per default category explaining what the
--- auto-classifier does for that key. Custom categories don't have
--- one - they only show items the user has pinned to them.
-local AUTO_BLURB = {
-    equipment   = "Auto-classifies items in the Weapons and Armor item classes.",
-    consumables = "Auto-classifies items in the Consumables item class.",
-    tradegoods  = "Auto-classifies Trade Goods, Recipes, Gems, and Item Enhancements.",
-    questitems  = "Auto-classifies items in the Quest Items class.",
-    junk        = "Auto-classifies items with quality Poor (grey).",
-    other       = "Catch-all - anything no other default category claims lands here.",
-}
+-- Forward-declare the Add Tag popup helpers so BuildCategoryDetail
+-- can reference them. They're defined at file scope below.
+local OpenAddTagPopup
 
 local function BuildCategoryDetail(item)
     local key       = item.key
@@ -74,16 +66,12 @@ local function BuildCategoryDetail(item)
 
     local blocks = {}
 
-    if AUTO_BLURB[key] then
-        blocks[#blocks+1] = { type = "paragraph", text = AUTO_BLURB[key] }
-    end
-
     blocks[#blocks+1] = {
         type  = "note",
         style = "info",
         text  = isDefault
-            and "You can rename this category, reorder it (use the up/down arrows on the left list), or pin extra items below. The auto-classifier still uses the original key, so renaming doesn't break anything."
-            or  "Custom category - only items you pin below will appear here.",
+            and "You can rename this category, reorder it (use the up/down arrows on the left list), edit its match rules below, or pin extra items as overrides. The category's internal key is locked, so renaming doesn't break anything."
+            or  "Custom category. Add match rules below to auto-include items, or shift+right-click items in the bag to pin them here manually.",
     }
 
     blocks[#blocks+1] = { type = "h3", name = "Identity" }
@@ -116,6 +104,89 @@ local function BuildCategoryDetail(item)
             RefreshAll()
         end,
     }
+
+    blocks[#blocks+1] = { type = "divider" }
+
+    -----------------------------------------------------------------
+    -- Match Rules - the tag-based auto-classifier for this category.
+    -- Items matching the rules (under the Match Mode) auto-fall into
+    -- this category. Pinned Items below override the rules. Both
+    -- default and custom categories use the same tag system - the
+    -- defaults ship with predefined tags (e.g. Equipment ships with
+    -- "Class is Weapon" + "Class is Armor", matchMode = "any") which
+    -- the user can edit, extend, or reset back to factory.
+    -----------------------------------------------------------------
+
+    blocks[#blocks+1] = { type = "h3", name = "Match Rules" }
+
+    blocks[#blocks+1] = {
+        type  = "note", style = "info",
+        text  = "Items that pass these rules drop into this category automatically. Pinned items (further down) override the rules.",
+    }
+
+    blocks[#blocks+1] = {
+        type   = "select",
+        name   = "Match Mode",
+        desc   = "All - the item must match every rule (AND). Any - the item lands here as soon as one rule hits (OR).",
+        values = {
+            all = "All  (item must match every rule)",
+            any = "Any  (item matches if it hits any rule)",
+        },
+        get = function() return addon.Categories.GetMatchMode(key) end,
+        set = function(_, val)
+            addon.Categories.SetMatchMode(key, val)
+            RefreshAll()
+        end,
+    }
+
+    -- Render each existing tag as a full-width "Remove rule: ..." button.
+    -- Same idiom the Pinned Items section uses below for consistency.
+    local tags = addon.Categories.GetTags(key)
+    if #tags == 0 then
+        blocks[#blocks+1] = {
+            type = "paragraph",
+            text = "|cff999999No rules yet. Items will only land here via pins (or the catch-all if this is the Other category).|r",
+        }
+    else
+        for i, tag in ipairs(tags) do
+            local idx = i  -- capture for closure
+            blocks[#blocks+1] = {
+                type  = "execute",
+                name  = "|cffff6666✕|r  " .. addon.Categories.FormatTag(tag),
+                width = "full",
+                func  = function()
+                    addon.Categories.RemoveTag(key, idx)
+                    RefreshAll()
+                end,
+            }
+        end
+    end
+
+    blocks[#blocks+1] = {
+        type  = "execute",
+        name  = "Add Match Rule",
+        width = isDefault and "half" or "full",
+        func  = function()
+            if OpenAddTagPopup then OpenAddTagPopup(key) end
+        end,
+    }
+
+    if isDefault then
+        blocks[#blocks+1] = {
+            type  = "execute",
+            name  = "Reset Rules to Default",
+            width = "half",
+            confirm            = true,
+            confirmTitle       = "Reset rules?",
+            confirmText        = "Restore the factory match rules for this category, discarding your edits? Pinned items are not affected.",
+            confirmStyle       = "destructive",
+            confirmAcceptLabel = "Reset",
+            func = function()
+                addon.Categories.ResetTagsToDefault(key)
+                RefreshAll()
+            end,
+        }
+    end
 
     blocks[#blocks+1] = { type = "divider" }
 
@@ -177,6 +248,203 @@ local function BuildCategoryDetail(item)
     }
 
     return blocks
+end
+
+---------------------------------------------------------------------------
+-- Add Match Rule popup (two-step flow)
+--
+-- Step 1: pick the tag type from a dropdown of all supported types.
+-- Step 2: pick the operator + value with type-specific widgets so the
+-- user never has to type a free-form value (no guessing class names,
+-- no remembering INVTYPE_* strings - everything's a dropdown or a
+-- numeric input).
+--
+-- The two steps share state via closure-captured tables, and the
+-- popup primitive's button onClick gets a snapshot of all current
+-- field values, so we just read them out at click time.
+---------------------------------------------------------------------------
+
+-- Convert an array of {value, label} options into the {key=label} map
+-- shape the popup's "select" field expects.
+local function ToValuesMap(opts)
+    local m = {}
+    for _, o in ipairs(opts) do m[o.value] = o.label end
+    return m
+end
+
+-- Subclass values are composite (class + subclass) so we encode them
+-- as "class:subclass" string keys for the dropdown, and decode on
+-- save. Same trick as item-set IDs would use if we added that tag
+-- type later.
+local function SubclassMap()
+    local m = {}
+    for _, o in ipairs(addon.Categories.SUBCLASS_OPTIONS) do
+        local k = tostring(o.class) .. ":" .. tostring(o.subclass)
+        m[k] = o.label
+    end
+    return m
+end
+
+local function ParseSubclassKey(k)
+    if not k or type(k) ~= "string" then return nil end
+    local c, s = k:match("^(%-?%d+):(%-?%d+)$")
+    if not c then return nil end
+    return { tonumber(c), tonumber(s) }
+end
+
+local OPS_MAP = {
+    name      = { contains = "contains", equals = "equals", regex = "matches regex" },
+    quality   = { [">="] = "at least",   ["="] = "exactly", ["<="] = "at most" },
+    ilvl      = { [">="] = "at least",   ["="] = "exactly", ["<="] = "at most" },
+    -- single-op types (class / subclass / equipSlot) skip the op
+    -- dropdown entirely - "is" is the only sensible choice.
+}
+
+-- Step 2: type-specific value editor. `tagType` is the chosen filter
+-- type from step 1. Builds the right widgets for that type and
+-- commits the tag on Add.
+local function OpenAddTagPopup_PickValue(categoryKey, tagType)
+    local fields = {}
+    local body
+    local buildTag
+
+    if tagType == "name" then
+        body = "Match items whose name contains the substring (case-insensitive), is exactly equal to it, or matches a Lua pattern."
+        fields = {
+            { key = "op",    type = "select", label = "Operator",
+              values = OPS_MAP.name, default = "contains" },
+            { key = "value", type = "input",  label = "Text",
+              default = "" },
+        }
+        buildTag = function(v)
+            return { type = "name", op = v.op or "contains",
+                     value = tostring(v.value or "") }
+        end
+
+    elseif tagType == "class" then
+        body = "Match items belonging to a specific WoW item class."
+        fields = {
+            { key = "value", type = "select", label = "Item Class",
+              values = ToValuesMap(addon.Categories.CLASS_OPTIONS),
+              default = Enum.ItemClass.Weapon },
+        }
+        buildTag = function(v)
+            return { type = "class", op = "equals",
+                     value = tonumber(v.value) }
+        end
+
+    elseif tagType == "subclass" then
+        body = "Match items in a specific item subclass (Cloth Armor, Daggers, Potions, etc.)."
+        fields = {
+            { key = "value", type = "select", label = "Subclass",
+              values = SubclassMap(),
+              default = "4:1" },  -- Armor:Cloth
+        }
+        buildTag = function(v)
+            local pair = ParseSubclassKey(v.value)
+            if not pair then return nil end
+            return { type = "subclass", op = "equals", value = pair }
+        end
+
+    elseif tagType == "equipSlot" then
+        body = "Match items that go into a specific equipment slot. Two-handed weapons use their own slot; one-handed and main/off-hand are distinct - pick the slot the item actually shows in its tooltip."
+        fields = {
+            { key = "value", type = "select", label = "Equip Slot",
+              values = ToValuesMap(addon.Categories.EQUIP_SLOT_OPTIONS),
+              default = "INVTYPE_HEAD" },
+        }
+        buildTag = function(v)
+            return { type = "equipSlot", op = "equals",
+                     value = tostring(v.value or "") }
+        end
+
+    elseif tagType == "quality" then
+        body = "Match items by their quality colour. \"At least Rare\" catches Rare, Epic, Legendary, Artifact, and Heirloom."
+        fields = {
+            { key = "op",    type = "select", label = "Operator",
+              values = OPS_MAP.quality, default = ">=" },
+            { key = "value", type = "select", label = "Quality",
+              values = ToValuesMap(addon.Categories.QUALITY_OPTIONS),
+              default = 3 },
+        }
+        buildTag = function(v)
+            return { type = "quality", op = v.op or ">=",
+                     value = tonumber(v.value) or 3 }
+        end
+
+    elseif tagType == "ilvl" then
+        body = "Match items by item level (the displayed number, accounting for upgrades)."
+        fields = {
+            { key = "op",    type = "select", label = "Operator",
+              values = OPS_MAP.ilvl, default = ">=" },
+            { key = "value", type = "input",  label = "Item Level",
+              default = "100" },
+        }
+        buildTag = function(v)
+            local n = tonumber(v.value)
+            if not n then return nil end
+            return { type = "ilvl", op = v.op or ">=", value = n }
+        end
+
+    else
+        return  -- unknown type, abort
+    end
+
+    -- Look up the friendly type label for the popup title.
+    local typeLabel = tagType
+    for _, t in ipairs(addon.Categories.TYPE_OPTIONS) do
+        if t.value == tagType then typeLabel = t.label; break end
+    end
+
+    BazCore:OpenPopup({
+        title  = "Add Match Rule - " .. typeLabel,
+        body   = body,
+        width  = 400,
+        fields = fields,
+        buttons = {
+            { label = "Cancel", style = "default", onClick = function() end },
+            {
+                label   = "Add Rule",
+                style   = "primary",
+                onClick = function(values)
+                    local tag = buildTag(values)
+                    if not tag then
+                        if addon.core then
+                            addon.core:Print("|cffff8800Couldn't parse rule value.|r")
+                        end
+                        return
+                    end
+                    addon.Categories.AddTag(categoryKey, tag)
+                    RefreshAll()
+                end,
+            },
+        },
+    })
+end
+
+-- Step 1: pick the tag type. On Next, closes itself and opens the
+-- type-specific Step 2 popup.
+OpenAddTagPopup = function(categoryKey)
+    BazCore:OpenPopup({
+        title = "Add Match Rule",
+        body  = "What do you want to filter by? Pick a type, then the next step lets you set the operator and value.",
+        width = 380,
+        fields = {
+            { key = "tagType", type = "select", label = "Filter by",
+              values = ToValuesMap(addon.Categories.TYPE_OPTIONS),
+              default = "name" },
+        },
+        buttons = {
+            { label = "Cancel", style = "default", onClick = function() end },
+            {
+                label   = "Next",
+                style   = "primary",
+                onClick = function(values)
+                    OpenAddTagPopup_PickValue(categoryKey, values.tagType or "name")
+                end,
+            },
+        },
+    })
 end
 
 ---------------------------------------------------------------------------

@@ -27,12 +27,57 @@ local Categories = addon.Categories
 ---------------------------------------------------------------------------
 
 Categories.FACTORY_DEFAULTS = {
-    { key = "equipment",   name = "Equipment",   order = 10 },
-    { key = "consumables", name = "Consumables", order = 20 },
-    { key = "tradegoods",  name = "Trade Goods", order = 30 },
-    { key = "questitems",  name = "Quest Items", order = 40 },
-    { key = "junk",        name = "Junk",        order = 50 },
-    { key = "other",       name = "Other",       order = 60 },
+    {
+        key = "equipment", name = "Equipment", order = 10,
+        matchMode = "any",
+        tags = {
+            { type = "class", op = "equals", value = Enum.ItemClass.Weapon },
+            { type = "class", op = "equals", value = Enum.ItemClass.Armor  },
+        },
+    },
+    {
+        key = "consumables", name = "Consumables", order = 20,
+        matchMode = "any",
+        tags = {
+            { type = "class", op = "equals", value = Enum.ItemClass.Consumable },
+        },
+    },
+    {
+        key = "tradegoods", name = "Trade Goods", order = 30,
+        matchMode = "any",
+        tags = {
+            { type = "class", op = "equals", value = Enum.ItemClass.Tradegoods      },
+            { type = "class", op = "equals", value = Enum.ItemClass.Recipe          },
+            { type = "class", op = "equals", value = Enum.ItemClass.Gem             },
+            { type = "class", op = "equals", value = Enum.ItemClass.ItemEnhancement },
+        },
+    },
+    {
+        key = "questitems", name = "Quest Items", order = 40,
+        matchMode = "any",
+        tags = {
+            { type = "class", op = "equals", value = Enum.ItemClass.Questitem },
+        },
+    },
+    {
+        -- Junk has a quality=0 rule. It sits at display order 50 (low
+        -- in the bag panel) but Classify checks it BEFORE the other
+        -- defaults via a hardcoded shortcut, so a grey weapon still
+        -- goes to Junk rather than Equipment regardless of order.
+        key = "junk", name = "Junk", order = 50,
+        matchMode = "all",
+        tags = {
+            { type = "quality", op = "=", value = 0 },
+        },
+    },
+    {
+        -- Catch-all. No tags - any item that doesn't match any other
+        -- category's tags lands here via the FallbackKey("other") call
+        -- at the end of Classify.
+        key = "other", name = "Other", order = 60,
+        matchMode = "all",
+        tags = {},
+    },
 }
 
 -- Set of bags we scan when bagMode == "categories".
@@ -58,11 +103,54 @@ function Categories.EnsureDefaults()
     local cats = addon:GetSetting("categories") or {}
     for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
         if not cats[def.key] then
+            -- Brand-new entry: copy the whole factory record (tags,
+            -- matchMode, the works).
             cats[def.key] = {
                 name      = def.name,
                 order     = def.order,
                 isDefault = true,
+                matchMode = def.matchMode,
+                tags      = def.tags and (function()
+                    -- Deep-copy tags so mutating SV doesn't poison the
+                    -- factory table. Pairs of {type, op, value} are
+                    -- shallow-copied; values that are tables (subclass)
+                    -- are also copied.
+                    local out = {}
+                    for i, t in ipairs(def.tags) do
+                        local copy = { type = t.type, op = t.op }
+                        if type(t.value) == "table" then
+                            local vc = {}
+                            for k, v in pairs(t.value) do vc[k] = v end
+                            copy.value = vc
+                        else
+                            copy.value = t.value
+                        end
+                        out[i] = copy
+                    end
+                    return out
+                end)() or nil,
             }
+        else
+            -- Existing entry: backfill the tag-related fields on
+            -- defaults that pre-date the tag system (v062 and earlier
+            -- shipped no tags). Don't clobber - only fill if missing.
+            -- Custom categories (isDefault ~= true) are left alone.
+            if cats[def.key].isDefault and not cats[def.key].tags then
+                cats[def.key].matchMode = def.matchMode
+                local out = {}
+                for i, t in ipairs(def.tags or {}) do
+                    local copy = { type = t.type, op = t.op }
+                    if type(t.value) == "table" then
+                        local vc = {}
+                        for k, v in pairs(t.value) do vc[k] = v end
+                        copy.value = vc
+                    else
+                        copy.value = t.value
+                    end
+                    out[i] = copy
+                end
+                cats[def.key].tags = out
+            end
         end
     end
     addon:SetSetting("categories", cats)
@@ -248,6 +336,390 @@ function Categories.ResetDefaults(wipeCustoms)
 end
 
 ---------------------------------------------------------------------------
+-- Tag-based match rules (Tier 1)
+--
+-- Custom categories can carry an array of tags that the classifier
+-- evaluates BEFORE the default item-class auto-router. If any tag rule
+-- matches (under the category's `matchMode` of "all" or "any"), the
+-- item lands in that custom category. Manual pins still win above
+-- everything (they short-circuit at the very top of Classify).
+--
+-- Tag schema:
+--   { type = "name",      op = "contains|equals|regex", value = string }
+--   { type = "class",     op = "equals", value = <classID> }
+--   { type = "subclass",  op = "equals", value = { <classID>, <subclassID> } }
+--   { type = "equipSlot", op = "equals", value = "INVTYPE_*" }
+--   { type = "quality",   op = ">=|=|<=", value = <0-7> }
+--   { type = "ilvl",      op = ">=|=|<=", value = <number> }
+---------------------------------------------------------------------------
+
+-- User-friendly enums and lookup tables. The classID / subclassID
+-- numbers come from Enum.ItemClass / Enum.ItemArmorSubclass etc but
+-- we publish stable string keys so the SV doesn't break if Blizzard
+-- ever renumbers (they almost never do, but defensive).
+
+Categories.CLASS_OPTIONS = {
+    { value = Enum.ItemClass.Weapon,         label = "Weapon"      },
+    { value = Enum.ItemClass.Armor,          label = "Armor"       },
+    { value = Enum.ItemClass.Consumable,     label = "Consumable"  },
+    { value = Enum.ItemClass.Tradegoods,     label = "Trade Goods" },
+    { value = Enum.ItemClass.Recipe,         label = "Recipe"      },
+    { value = Enum.ItemClass.Gem,            label = "Gem"         },
+    { value = Enum.ItemClass.Questitem,      label = "Quest Item"  },
+    { value = Enum.ItemClass.Miscellaneous,  label = "Miscellaneous" },
+    { value = Enum.ItemClass.Battlepet,      label = "Battle Pet"  },
+    { value = Enum.ItemClass.Container,      label = "Container"   },
+    { value = Enum.ItemClass.Glyph,          label = "Glyph"       },
+    { value = Enum.ItemClass.ItemEnhancement, label = "Item Enhancement" },
+    { value = Enum.ItemClass.Profession,     label = "Profession"  },
+}
+
+-- Maps composite "class:subclass" pair to a friendly label. Subclass
+-- IDs aren't unique across classes so each entry needs both. Only the
+-- common-use subclasses are listed - exotic ones like specific rare
+-- weapon types can be added on demand.
+Categories.SUBCLASS_OPTIONS = {
+    -- Armor (classID 4)
+    { class = 4, subclass = 1, label = "Cloth Armor"        },
+    { class = 4, subclass = 2, label = "Leather Armor"      },
+    { class = 4, subclass = 3, label = "Mail Armor"         },
+    { class = 4, subclass = 4, label = "Plate Armor"        },
+    { class = 4, subclass = 5, label = "Cosmetic Armor"     },
+    { class = 4, subclass = 6, label = "Shield"             },
+    -- Weapon (classID 2)
+    { class = 2, subclass = 0,  label = "Axe (1H)"          },
+    { class = 2, subclass = 1,  label = "Axe (2H)"          },
+    { class = 2, subclass = 2,  label = "Bow"               },
+    { class = 2, subclass = 3,  label = "Gun"               },
+    { class = 2, subclass = 4,  label = "Mace (1H)"         },
+    { class = 2, subclass = 5,  label = "Mace (2H)"         },
+    { class = 2, subclass = 6,  label = "Polearm"           },
+    { class = 2, subclass = 7,  label = "Sword (1H)"        },
+    { class = 2, subclass = 8,  label = "Sword (2H)"        },
+    { class = 2, subclass = 9,  label = "Warglaive"         },
+    { class = 2, subclass = 10, label = "Staff"             },
+    { class = 2, subclass = 13, label = "Fist Weapon"       },
+    { class = 2, subclass = 15, label = "Dagger"            },
+    { class = 2, subclass = 18, label = "Crossbow"          },
+    { class = 2, subclass = 19, label = "Wand"              },
+    -- Consumable (classID 0)
+    { class = 0, subclass = 1, label = "Potion"             },
+    { class = 0, subclass = 2, label = "Elixir"             },
+    { class = 0, subclass = 3, label = "Flask"              },
+    { class = 0, subclass = 5, label = "Food & Drink"       },
+    { class = 0, subclass = 6, label = "Bandage"            },
+    { class = 0, subclass = 8, label = "Other Consumable"   },
+    -- Trade Goods (classID 7)
+    { class = 7, subclass = 4, label = "Cloth (Trade Good)"     },
+    { class = 7, subclass = 5, label = "Leather (Trade Good)"   },
+    { class = 7, subclass = 6, label = "Metal & Stone"          },
+    { class = 7, subclass = 7, label = "Cooking Material"       },
+    { class = 7, subclass = 8, label = "Herb"                   },
+    { class = 7, subclass = 9, label = "Elemental"              },
+    { class = 7, subclass = 12, label = "Enchanting Material"   },
+    { class = 7, subclass = 13, label = "Inscription Material"  },
+}
+
+-- Friendly equip-slot list. Maps to INVTYPE_* strings under the hood.
+Categories.EQUIP_SLOT_OPTIONS = {
+    { value = "INVTYPE_HEAD",          label = "Head"            },
+    { value = "INVTYPE_NECK",          label = "Neck"            },
+    { value = "INVTYPE_SHOULDER",      label = "Shoulder"        },
+    { value = "INVTYPE_CLOAK",         label = "Cloak / Back"    },
+    { value = "INVTYPE_CHEST",         label = "Chest"           },
+    { value = "INVTYPE_ROBE",          label = "Robe"            },
+    { value = "INVTYPE_BODY",          label = "Shirt"           },
+    { value = "INVTYPE_TABARD",        label = "Tabard"          },
+    { value = "INVTYPE_WRIST",         label = "Wrist"           },
+    { value = "INVTYPE_HAND",          label = "Hands"           },
+    { value = "INVTYPE_WAIST",         label = "Waist"           },
+    { value = "INVTYPE_LEGS",          label = "Legs"            },
+    { value = "INVTYPE_FEET",          label = "Feet"            },
+    { value = "INVTYPE_FINGER",        label = "Ring"            },
+    { value = "INVTYPE_TRINKET",       label = "Trinket"         },
+    { value = "INVTYPE_WEAPON",        label = "One-Handed Weapon"   },
+    { value = "INVTYPE_2HWEAPON",      label = "Two-Handed Weapon"   },
+    { value = "INVTYPE_WEAPONMAINHAND", label = "Main Hand"      },
+    { value = "INVTYPE_WEAPONOFFHAND", label = "Off Hand"        },
+    { value = "INVTYPE_HOLDABLE",      label = "Held In Off-Hand" },
+    { value = "INVTYPE_SHIELD",        label = "Shield Slot"     },
+    { value = "INVTYPE_RANGED",        label = "Ranged"          },
+    { value = "INVTYPE_RANGEDRIGHT",   label = "Ranged (Wand/Crossbow)" },
+    { value = "INVTYPE_BAG",           label = "Bag"             },
+}
+
+Categories.QUALITY_OPTIONS = {
+    { value = 0, label = "Poor (Grey)"        },
+    { value = 1, label = "Common (White)"     },
+    { value = 2, label = "Uncommon (Green)"   },
+    { value = 3, label = "Rare (Blue)"        },
+    { value = 4, label = "Epic (Purple)"      },
+    { value = 5, label = "Legendary (Orange)" },
+    { value = 6, label = "Artifact (Red)"     },
+    { value = 7, label = "Heirloom (Cyan)"    },
+}
+
+Categories.TYPE_OPTIONS = {
+    { value = "name",      label = "Name"           },
+    { value = "class",     label = "Item Class"     },
+    { value = "subclass",  label = "Item Subclass"  },
+    { value = "equipSlot", label = "Equip Slot"     },
+    { value = "quality",   label = "Quality"        },
+    { value = "ilvl",      label = "Item Level"     },
+}
+
+-- Valid operators per tag type. Used by the popup to filter the op
+-- dropdown to only those that make sense for the chosen type.
+Categories.OPS_FOR_TYPE = {
+    name      = { { value = "contains", label = "contains"   },
+                  { value = "equals",   label = "equals"     },
+                  { value = "regex",    label = "matches regex" } },
+    class     = { { value = "equals",   label = "is" } },
+    subclass  = { { value = "equals",   label = "is" } },
+    equipSlot = { { value = "equals",   label = "is" } },
+    quality   = { { value = ">=", label = "at least" },
+                  { value = "=",  label = "exactly"  },
+                  { value = "<=", label = "at most"  } },
+    ilvl      = { { value = ">=", label = "at least" },
+                  { value = "=",  label = "exactly"  },
+                  { value = "<=", label = "at most"  } },
+}
+
+-- Lookup helpers for friendly label rendering.
+local function ClassLabel(classID)
+    for _, o in ipairs(Categories.CLASS_OPTIONS) do
+        if o.value == classID then return o.label end
+    end
+    return tostring(classID)
+end
+
+local function SubclassLabel(classID, subclassID)
+    for _, o in ipairs(Categories.SUBCLASS_OPTIONS) do
+        if o.class == classID and o.subclass == subclassID then return o.label end
+    end
+    return ClassLabel(classID) .. ":" .. tostring(subclassID)
+end
+
+local function EquipSlotLabel(invtype)
+    for _, o in ipairs(Categories.EQUIP_SLOT_OPTIONS) do
+        if o.value == invtype then return o.label end
+    end
+    return invtype or "?"
+end
+
+local function QualityLabel(q)
+    for _, o in ipairs(Categories.QUALITY_OPTIONS) do
+        if o.value == q then return o.label end
+    end
+    return tostring(q)
+end
+
+-- Pretty-print a tag for display in the rules list. Format reads as
+-- a natural-language clause: "Name contains 'PoE'", "Quality at least Rare".
+function Categories.FormatTag(tag)
+    if not tag or not tag.type then return "(invalid rule)" end
+    local t, op, v = tag.type, tag.op or "equals", tag.value
+    if t == "name" then
+        local opLabel = (op == "contains" and "contains")
+            or (op == "equals" and "equals")
+            or (op == "regex" and "matches regex")
+            or op
+        return string.format("Name %s |cffffd700\"%s\"|r",
+            opLabel, tostring(v or ""))
+    elseif t == "class" then
+        return "Item Class is |cffffd700" .. ClassLabel(v) .. "|r"
+    elseif t == "subclass" then
+        if type(v) == "table" then
+            return "Item Subclass is |cffffd700" .. SubclassLabel(v[1], v[2]) .. "|r"
+        end
+        return "Item Subclass is " .. tostring(v)
+    elseif t == "equipSlot" then
+        return "Equip Slot is |cffffd700" .. EquipSlotLabel(v) .. "|r"
+    elseif t == "quality" then
+        local opLabel = (op == ">=" and "at least")
+            or (op == "<=" and "at most")
+            or "exactly"
+        return string.format("Quality %s |cffffd700%s|r",
+            opLabel, QualityLabel(tonumber(v) or 0))
+    elseif t == "ilvl" then
+        local opLabel = (op == ">=" and "at least")
+            or (op == "<=" and "at most")
+            or "exactly"
+        return string.format("Item Level %s |cffffd700%d|r",
+            opLabel, tonumber(v) or 0)
+    end
+    return "(unknown rule type: " .. tostring(t) .. ")"
+end
+
+-- Pull metadata for matching. Returns nil if GetItemInfo hasn't cached
+-- the item yet (the bag refresh loop will hit the same item again on
+-- the next refresh once Blizzard fills the cache).
+local function ItemMeta(itemID)
+    if not itemID then return nil end
+    local name, _, quality, ilvl, minLvl, _, _, stack,
+          equipLoc, _, _, classID, subclassID, bindType,
+          expacID, setID, isCraftingReagent = C_Item.GetItemInfo(itemID)
+    if not name then return nil end
+    return {
+        name              = name,
+        quality           = quality,
+        ilvl              = ilvl,
+        minLvl            = minLvl,
+        stack             = stack,
+        equipLoc          = equipLoc,
+        classID           = classID,
+        subclassID        = subclassID,
+        bindType          = bindType,
+        expacID           = expacID,
+        setID             = setID,
+        isCraftingReagent = isCraftingReagent,
+    }
+end
+
+-- Single-tag match. Returns true/false. Defensive against malformed
+-- tag tables - bad ops just fail-match rather than throwing.
+local function MatchTag(tag, meta)
+    if not tag or not tag.type or not meta then return false end
+    local t  = tag.type
+    local op = tag.op or "equals"
+    local v  = tag.value
+
+    if t == "name" then
+        local n = (meta.name or ""):lower()
+        local s = tostring(v or "")
+        if op == "contains" then
+            return n:find(s:lower(), 1, true) ~= nil
+        elseif op == "equals" then
+            return n == s:lower()
+        elseif op == "regex" then
+            local ok, m = pcall(string.match, meta.name or "", s)
+            return ok and m ~= nil
+        end
+        return false
+    elseif t == "class" then
+        return meta.classID == tonumber(v)
+    elseif t == "subclass" then
+        if type(v) == "table" then
+            return meta.classID == v[1] and meta.subclassID == v[2]
+        end
+        return false
+    elseif t == "equipSlot" then
+        return meta.equipLoc == v
+    elseif t == "quality" then
+        local q = meta.quality or 0
+        local n = tonumber(v) or 0
+        if op == ">=" then return q >= n end
+        if op == "=" then return q == n end
+        if op == "<=" then return q <= n end
+        return false
+    elseif t == "ilvl" then
+        local i = meta.ilvl or 0
+        local n = tonumber(v) or 0
+        if op == ">=" then return i >= n end
+        if op == "=" then return i == n end
+        if op == "<=" then return i <= n end
+        return false
+    end
+    return false
+end
+
+-- Returns true if `itemID` passes ALL (or ANY, depending on matchMode)
+-- of the tags on `categoryKey`. False if the category has no tags or
+-- the item info isn't cached yet.
+function Categories.MatchesCategory(itemID, categoryKey)
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[categoryKey]
+    if not cat or not cat.tags or #cat.tags == 0 then return false end
+
+    local meta = ItemMeta(itemID)
+    if not meta then return false end
+
+    local mode = cat.matchMode or "all"
+    if mode == "all" then
+        for _, tag in ipairs(cat.tags) do
+            if not MatchTag(tag, meta) then return false end
+        end
+        return true
+    else
+        for _, tag in ipairs(cat.tags) do
+            if MatchTag(tag, meta) then return true end
+        end
+        return false
+    end
+end
+
+---------------------------------------------------------------------------
+-- Tag CRUD
+---------------------------------------------------------------------------
+
+function Categories.GetTags(key)
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    return (cat and cat.tags) or {}
+end
+
+function Categories.AddTag(key, tag)
+    if not key or not tag then return end
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    if not cat then return end
+    cat.tags = cat.tags or {}
+    cat.tags[#cat.tags + 1] = tag
+    addon:SetSetting("categories", cats)
+end
+
+function Categories.RemoveTag(key, index)
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    if not cat or not cat.tags then return end
+    table.remove(cat.tags, index)
+    addon:SetSetting("categories", cats)
+end
+
+function Categories.GetMatchMode(key)
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    return (cat and cat.matchMode) or "all"
+end
+
+function Categories.SetMatchMode(key, mode)
+    if mode ~= "all" and mode ~= "any" then return end
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    if not cat then return end
+    cat.matchMode = mode
+    addon:SetSetting("categories", cats)
+end
+
+-- Restore the factory tags + matchMode for a default category. No-op
+-- on custom categories (they have no factory state to restore).
+function Categories.ResetTagsToDefault(key)
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    if not cat or not cat.isDefault then return end
+    for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
+        if def.key == key then
+            cat.matchMode = def.matchMode
+            local out = {}
+            for i, t in ipairs(def.tags or {}) do
+                local copy = { type = t.type, op = t.op }
+                if type(t.value) == "table" then
+                    local vc = {}
+                    for k, v in pairs(t.value) do vc[k] = v end
+                    copy.value = vc
+                else
+                    copy.value = t.value
+                end
+                out[i] = copy
+            end
+            cat.tags = out
+            addon:SetSetting("categories", cats)
+            return
+        end
+    end
+end
+
+---------------------------------------------------------------------------
 -- Item pinning
 ---------------------------------------------------------------------------
 
@@ -302,6 +774,7 @@ local function FallbackKey(preferred)
 end
 
 function Categories.Classify(itemID, quality, classID)
+    -- 1. Manual pin override always wins.
     local pins = addon:GetSetting("itemCategories")
     if pins and itemID and pins[itemID] then
         local catKey = pins[itemID]
@@ -310,24 +783,36 @@ function Categories.Classify(itemID, quality, classID)
         -- Pin points at a category that no longer exists; drop to auto.
     end
 
-    if quality == 0 then return FallbackKey("junk") end
+    -- 2. Junk shortcut: quality=0 always goes to Junk (if it still
+    -- exists), regardless of category display order. This preserves
+    -- the original behaviour where a grey weapon lands in Junk
+    -- rather than Equipment - users typically batch-vendor greys
+    -- together, so the quality flag wins over the class flag for
+    -- low-quality items. If the user has deleted the Junk category
+    -- or it has no quality=0 tag any more, fall through to normal
+    -- tag-based matching.
+    if quality == 0 then
+        local cats = addon:GetSetting("categories") or {}
+        if cats.junk then return "junk" end
+    end
 
-    if classID == Enum.ItemClass.Weapon
-       or classID == Enum.ItemClass.Armor then
-        return FallbackKey("equipment")
+    -- 3. Tag-based matching for ALL categories (default + custom).
+    -- Walk in display order; first category whose tags match wins.
+    -- Categories with no tags (e.g. "Other" by design) are skipped
+    -- so they only ever match via the catch-all fallback below.
+    local list = Categories.GetAll()
+    for _, entry in ipairs(list) do
+        local cats = addon:GetSetting("categories") or {}
+        local cat  = cats[entry.key]
+        if cat and cat.tags and #cat.tags > 0 then
+            if Categories.MatchesCategory(itemID, entry.key) then
+                return entry.key
+            end
+        end
     end
-    if classID == Enum.ItemClass.Consumable then
-        return FallbackKey("consumables")
-    end
-    if classID == Enum.ItemClass.Tradegoods
-       or classID == Enum.ItemClass.Recipe
-       or classID == Enum.ItemClass.Gem
-       or classID == Enum.ItemClass.ItemEnhancement then
-        return FallbackKey("tradegoods")
-    end
-    if classID == Enum.ItemClass.Questitem then
-        return FallbackKey("questitems")
-    end
+
+    -- 4. Catch-all: nothing claimed it. Land in "other" if it still
+    -- exists, otherwise the lowest-ordered surviving category.
     return FallbackKey("other")
 end
 

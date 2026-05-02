@@ -676,6 +676,41 @@ function Categories.RemoveTag(key, index)
     addon:SetSetting("categories", cats)
 end
 
+-- Replace the tag at `index` with a new one. Used by the inline rule
+-- editor when the user changes any field in a row (type, op, or
+-- value) - the row rebuilds the tag from scratch and writes it back
+-- through this function.
+function Categories.UpdateTag(key, index, tag)
+    if not key or not index or not tag then return end
+    local cats = addon:GetSetting("categories") or {}
+    local cat  = cats[key]
+    if not cat or not cat.tags or not cat.tags[index] then return end
+    cat.tags[index] = tag
+    addon:SetSetting("categories", cats)
+end
+
+-- Default-shaped tag for a given type. Used when the user changes a
+-- rule's Type via the inline editor - the existing op + value are
+-- discarded (they don't make sense for the new type) and replaced
+-- with sensible starter values for the new type.
+function Categories.MakeDefaultTag(tagType)
+    if tagType == "name" then
+        return { type = "name", op = "contains", value = "" }
+    elseif tagType == "class" then
+        return { type = "class", op = "equals", value = Enum.ItemClass.Weapon }
+    elseif tagType == "subclass" then
+        return { type = "subclass", op = "equals",
+                 value = { Enum.ItemClass.Armor, 1 } }  -- Armor: Cloth
+    elseif tagType == "equipSlot" then
+        return { type = "equipSlot", op = "equals", value = "INVTYPE_HEAD" }
+    elseif tagType == "quality" then
+        return { type = "quality", op = ">=", value = 3 }  -- Rare+
+    elseif tagType == "ilvl" then
+        return { type = "ilvl", op = ">=", value = 100 }
+    end
+    return { type = "name", op = "contains", value = "" }
+end
+
 function Categories.GetMatchMode(key)
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]

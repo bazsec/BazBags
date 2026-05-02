@@ -48,6 +48,284 @@ local function RefreshAll()
 end
 
 ---------------------------------------------------------------------------
+-- Inline rule-row widget
+--
+-- Each match rule is rendered as one full-width row with everything
+-- editable inline:
+--
+--   [ Type ▼ ]  [ Op ▼ ]  [ Value ▼ / input ]                [ Remove ]
+--
+-- Changing any control rebuilds the tag and writes back through
+-- Categories.UpdateTag, then refreshes the page so the row re-renders
+-- with the new shape (changing Type swaps the Op options + the Value
+-- widget kind, e.g. picking "Item Level" replaces a class-name
+-- dropdown with a numeric input). The whole row is one custom widget
+-- registered via O.widgetFactories.ruleRow + O.RegisterFullWidthBlockType
+-- so the LayoutEngine treats it as a block-level item that gets its
+-- own row in the panel.
+---------------------------------------------------------------------------
+
+local O = BazCore._Options
+
+-- Helpers for translating tag fields into UI-friendly labels.
+
+local function TypeLabel(t)
+    for _, o in ipairs(addon.Categories.TYPE_OPTIONS) do
+        if o.value == t then return o.label end
+    end
+    return t or "?"
+end
+
+local function OpLabelFor(tagType, op)
+    local list = addon.Categories.OPS_FOR_TYPE[tagType] or {}
+    for _, o in ipairs(list) do
+        if o.value == op then return o.label end
+    end
+    return op or "?"
+end
+
+local function ClassValueLabel(classID)
+    for _, o in ipairs(addon.Categories.CLASS_OPTIONS) do
+        if o.value == classID then return o.label end
+    end
+    return tostring(classID)
+end
+
+local function SubclassValueLabel(value)
+    if type(value) == "table" then
+        for _, o in ipairs(addon.Categories.SUBCLASS_OPTIONS) do
+            if o.class == value[1] and o.subclass == value[2] then return o.label end
+        end
+    end
+    return "?"
+end
+
+local function EquipSlotValueLabel(invtype)
+    for _, o in ipairs(addon.Categories.EQUIP_SLOT_OPTIONS) do
+        if o.value == invtype then return o.label end
+    end
+    return invtype or "?"
+end
+
+local function QualityValueLabel(q)
+    for _, o in ipairs(addon.Categories.QUALITY_OPTIONS) do
+        if o.value == q then return o.label end
+    end
+    return tostring(q)
+end
+
+-- Encode/decode subclass composite value for the dropdown. Storage
+-- is a {classID, subclassID} table; the dropdown radio's "value"
+-- needs to be a single primitive so we use "class:subclass" strings
+-- in the menu and translate at write time.
+local function EncodeSubclassKey(classID, subclassID)
+    return tostring(classID) .. ":" .. tostring(subclassID)
+end
+
+local function DecodeSubclassKey(s)
+    local c, sub = string.match(s or "", "^(%-?%d+):(%-?%d+)$")
+    if not c then return nil end
+    return { tonumber(c), tonumber(sub) }
+end
+
+local ROW_HEIGHT = 36
+local TYPE_W    = 110
+local OP_W      = 90
+local REMOVE_W  = 70
+local GAP       = 6
+
+-- Build a value control (input or dropdown) inside `frame`, anchored
+-- between leftAnchorPoint and the Remove button (right edge). Returns
+-- the created widget so callers can SetEnabled / refocus it.
+local function BuildValueControl(frame, tag, key, idx, leftPx, rightInsetPx)
+    local controlW = nil  -- we'll use SetPoint LEFT/RIGHT instead
+
+    if tag.type == "name" or tag.type == "ilvl" then
+        local input = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+        input:SetPoint("LEFT",  frame, "LEFT",  leftPx + 8, 0)
+        input:SetPoint("RIGHT", frame, "RIGHT", -(rightInsetPx + 4), 0)
+        input:SetHeight(22)
+        input:SetAutoFocus(false)
+        input:SetText(tostring(tag.value or ""))
+
+        local commit = function(self)
+            local raw = self:GetText()
+            local v = raw
+            if tag.type == "ilvl" then v = tonumber(raw) or 0 end
+            addon.Categories.UpdateTag(key, idx,
+                { type = tag.type, op = tag.op, value = v })
+            RefreshAll()
+        end
+        input:SetScript("OnEnterPressed", function(self)
+            commit(self); self:ClearFocus()
+        end)
+        input:SetScript("OnEscapePressed", function(self)
+            self:SetText(tostring(tag.value or ""))
+            self:ClearFocus()
+        end)
+        -- Commit on focus-lost too so click-away works without Enter.
+        input:SetScript("OnEditFocusLost", commit)
+        return input
+    end
+
+    -- Dropdown for class / subclass / equipSlot / quality.
+    local btn = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+    btn:SetPoint("LEFT",  frame, "LEFT",  leftPx, 0)
+    btn:SetPoint("RIGHT", frame, "RIGHT", -rightInsetPx, 0)
+
+    -- Default-text label for the currently-selected value.
+    local label
+    if tag.type == "class" then
+        label = ClassValueLabel(tonumber(tag.value))
+    elseif tag.type == "subclass" then
+        label = SubclassValueLabel(tag.value)
+    elseif tag.type == "equipSlot" then
+        label = EquipSlotValueLabel(tag.value)
+    elseif tag.type == "quality" then
+        label = QualityValueLabel(tonumber(tag.value))
+    end
+    btn:SetDefaultText(label or "?")
+
+    btn:SetupMenu(function(_, root)
+        if tag.type == "class" then
+            for _, o in ipairs(addon.Categories.CLASS_OPTIONS) do
+                root:CreateRadio(o.label,
+                    function() return tonumber(tag.value) == o.value end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = "class", op = "equals", value = o.value })
+                        RefreshAll()
+                    end)
+            end
+        elseif tag.type == "subclass" then
+            for _, o in ipairs(addon.Categories.SUBCLASS_OPTIONS) do
+                local k = EncodeSubclassKey(o.class, o.subclass)
+                root:CreateRadio(o.label,
+                    function()
+                        return type(tag.value) == "table"
+                           and tag.value[1] == o.class
+                           and tag.value[2] == o.subclass
+                    end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = "subclass", op = "equals",
+                              value = { o.class, o.subclass } })
+                        RefreshAll()
+                    end)
+            end
+        elseif tag.type == "equipSlot" then
+            for _, o in ipairs(addon.Categories.EQUIP_SLOT_OPTIONS) do
+                root:CreateRadio(o.label,
+                    function() return tag.value == o.value end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = "equipSlot", op = "equals", value = o.value })
+                        RefreshAll()
+                    end)
+            end
+        elseif tag.type == "quality" then
+            for _, o in ipairs(addon.Categories.QUALITY_OPTIONS) do
+                root:CreateRadio(o.label,
+                    function() return tonumber(tag.value) == o.value end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = "quality", op = tag.op, value = o.value })
+                        RefreshAll()
+                    end)
+            end
+        end
+    end)
+
+    return btn
+end
+
+local function CreateRuleRowWidget(parent, opt, contentWidth)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetSize(contentWidth, ROW_HEIGHT)
+
+    local key = opt.categoryKey
+    local idx = opt.tagIndex
+    local tag = opt.tag
+
+    -- 1. Type dropdown (left, fixed width)
+    local typeBtn = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+    typeBtn:SetPoint("LEFT", frame, "LEFT", 0, 0)
+    typeBtn:SetWidth(TYPE_W)
+    typeBtn:SetDefaultText(TypeLabel(tag.type))
+    typeBtn:SetupMenu(function(_, root)
+        for _, t in ipairs(addon.Categories.TYPE_OPTIONS) do
+            root:CreateRadio(t.label,
+                function() return tag.type == t.value end,
+                function()
+                    -- Replace with a default-shaped tag for the new
+                    -- type. The existing op/value almost certainly
+                    -- don't translate (e.g. switching from Quality to
+                    -- Name) so the cleanest behaviour is a fresh
+                    -- starter the user can refine.
+                    addon.Categories.UpdateTag(key, idx,
+                        addon.Categories.MakeDefaultTag(t.value))
+                    RefreshAll()
+                end)
+        end
+    end)
+
+    -- 2. Op slot (90px wide) - dropdown for multi-op types,
+    -- static "is" label for single-op types (class/subclass/equipSlot).
+    local ops = addon.Categories.OPS_FOR_TYPE[tag.type] or {}
+    if #ops > 1 then
+        local opBtn = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+        opBtn:SetPoint("LEFT", typeBtn, "RIGHT", GAP, 0)
+        opBtn:SetWidth(OP_W)
+        opBtn:SetDefaultText(OpLabelFor(tag.type, tag.op))
+        opBtn:SetupMenu(function(_, root)
+            for _, o in ipairs(ops) do
+                root:CreateRadio(o.label,
+                    function() return tag.op == o.value end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = tag.type, op = o.value, value = tag.value })
+                        RefreshAll()
+                    end)
+            end
+        end)
+    else
+        local opLabel = frame:CreateFontString(nil, "OVERLAY", O.LABEL_FONT)
+        opLabel:SetPoint("LEFT", typeBtn, "RIGHT", GAP, 0)
+        opLabel:SetWidth(OP_W)
+        opLabel:SetJustifyH("CENTER")
+        opLabel:SetText("is")
+        opLabel:SetTextColor(unpack(O.TEXT_DESC))
+    end
+
+    -- 3. Value control (input or dropdown depending on type),
+    --    anchored between the op slot and the Remove button.
+    local valueLeftPx = TYPE_W + GAP + OP_W + GAP
+    local rightInset  = REMOVE_W + GAP
+    BuildValueControl(frame, tag, key, idx, valueLeftPx, rightInset)
+
+    -- 4. Remove button (right-aligned)
+    local rmBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    rmBtn:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+    rmBtn:SetSize(REMOVE_W, 22)
+    rmBtn:SetText("Remove")
+    rmBtn:SetScript("OnClick", function()
+        addon.Categories.RemoveTag(key, idx)
+        RefreshAll()
+    end)
+
+    return frame, ROW_HEIGHT
+end
+
+-- Register with BazCore. Idempotent - re-running on a /reload just
+-- overwrites the same factory entry.
+if O and O.widgetFactories then
+    O.widgetFactories.ruleRow = CreateRuleRowWidget
+end
+if O and O.RegisterFullWidthBlockType then
+    O.RegisterFullWidthBlockType("ruleRow")
+end
+
+---------------------------------------------------------------------------
 -- Per-category detail blocks
 --
 -- Returns an array of opt tables (content blocks + form widgets) in
@@ -55,10 +333,6 @@ end
 -- the keyed args table the renderer expects, and auto-prepends an h1
 -- with the category name above whatever this returns.
 ---------------------------------------------------------------------------
-
--- Forward-declare the Add Tag popup helpers so BuildCategoryDetail
--- can reference them. They're defined at file scope below.
-local OpenAddTagPopup
 
 local function BuildCategoryDetail(item)
     local key       = item.key
@@ -129,12 +403,18 @@ local function BuildCategoryDetail(item)
     -- engine alternates strictly between left and right columns, so
     -- the order here matters: Add (col 1) -> Match Mode (col 2) ->
     -- (defaults only) Reset (col 1, stacks under Add in the left card).
+    --
+    -- Add Match Rule appends a sensible default tag (Name contains "")
+    -- and refreshes - the new row appears in the list below ready for
+    -- the user to fill in inline via its Type / Op / Value dropdowns.
+    -- No popup needed; the rule editor below IS the input surface.
     blocks[#blocks+1] = {
         type  = "execute",
         name  = "Add Match Rule",
         width = "half",
         func  = function()
-            if OpenAddTagPopup then OpenAddTagPopup(key) end
+            addon.Categories.AddTag(key, addon.Categories.MakeDefaultTag("name"))
+            RefreshAll()
         end,
     }
 
@@ -176,25 +456,23 @@ local function BuildCategoryDetail(item)
     -- yet." text when the tag list is empty.
     blocks[#blocks+1] = { type = "h4", name = "Current Rules" }
 
-    -- Render each existing tag as a full-width "Remove rule: ..." button.
-    -- Same idiom the Pinned Items section uses below for consistency.
+    -- Render each existing tag as an inline ruleRow widget so every
+    -- field (type / op / value) is editable in place, no popup needed.
+    -- Empty list shows a hint paragraph instead.
     local tags = addon.Categories.GetTags(key)
     if #tags == 0 then
         blocks[#blocks+1] = {
             type = "paragraph",
-            text = "|cff999999No rules yet. Items will only land here via pins (or the catch-all if this is the Other category).|r",
+            text = "|cff999999No rules yet. Click " ..
+                   "|cffffd700Add Match Rule|r above to start - the new row will appear here ready to edit.|r",
         }
     else
         for i, tag in ipairs(tags) do
-            local idx = i  -- capture for closure
             blocks[#blocks+1] = {
-                type  = "execute",
-                name  = "Remove rule:  " .. addon.Categories.FormatTag(tag),
-                width = "full",
-                func  = function()
-                    addon.Categories.RemoveTag(key, idx)
-                    RefreshAll()
-                end,
+                type        = "ruleRow",
+                categoryKey = key,
+                tagIndex    = i,
+                tag         = tag,
             }
         end
     end
@@ -259,203 +537,6 @@ local function BuildCategoryDetail(item)
     }
 
     return blocks
-end
-
----------------------------------------------------------------------------
--- Add Match Rule popup (two-step flow)
---
--- Step 1: pick the tag type from a dropdown of all supported types.
--- Step 2: pick the operator + value with type-specific widgets so the
--- user never has to type a free-form value (no guessing class names,
--- no remembering INVTYPE_* strings - everything's a dropdown or a
--- numeric input).
---
--- The two steps share state via closure-captured tables, and the
--- popup primitive's button onClick gets a snapshot of all current
--- field values, so we just read them out at click time.
----------------------------------------------------------------------------
-
--- Convert an array of {value, label} options into the {key=label} map
--- shape the popup's "select" field expects.
-local function ToValuesMap(opts)
-    local m = {}
-    for _, o in ipairs(opts) do m[o.value] = o.label end
-    return m
-end
-
--- Subclass values are composite (class + subclass) so we encode them
--- as "class:subclass" string keys for the dropdown, and decode on
--- save. Same trick as item-set IDs would use if we added that tag
--- type later.
-local function SubclassMap()
-    local m = {}
-    for _, o in ipairs(addon.Categories.SUBCLASS_OPTIONS) do
-        local k = tostring(o.class) .. ":" .. tostring(o.subclass)
-        m[k] = o.label
-    end
-    return m
-end
-
-local function ParseSubclassKey(k)
-    if not k or type(k) ~= "string" then return nil end
-    local c, s = k:match("^(%-?%d+):(%-?%d+)$")
-    if not c then return nil end
-    return { tonumber(c), tonumber(s) }
-end
-
-local OPS_MAP = {
-    name      = { contains = "contains", equals = "equals", regex = "matches regex" },
-    quality   = { [">="] = "at least",   ["="] = "exactly", ["<="] = "at most" },
-    ilvl      = { [">="] = "at least",   ["="] = "exactly", ["<="] = "at most" },
-    -- single-op types (class / subclass / equipSlot) skip the op
-    -- dropdown entirely - "is" is the only sensible choice.
-}
-
--- Step 2: type-specific value editor. `tagType` is the chosen filter
--- type from step 1. Builds the right widgets for that type and
--- commits the tag on Add.
-local function OpenAddTagPopup_PickValue(categoryKey, tagType)
-    local fields = {}
-    local body
-    local buildTag
-
-    if tagType == "name" then
-        body = "Match items whose name contains the substring (case-insensitive), is exactly equal to it, or matches a Lua pattern."
-        fields = {
-            { key = "op",    type = "select", label = "Operator",
-              values = OPS_MAP.name, default = "contains" },
-            { key = "value", type = "input",  label = "Text",
-              default = "" },
-        }
-        buildTag = function(v)
-            return { type = "name", op = v.op or "contains",
-                     value = tostring(v.value or "") }
-        end
-
-    elseif tagType == "class" then
-        body = "Match items belonging to a specific WoW item class."
-        fields = {
-            { key = "value", type = "select", label = "Item Class",
-              values = ToValuesMap(addon.Categories.CLASS_OPTIONS),
-              default = Enum.ItemClass.Weapon },
-        }
-        buildTag = function(v)
-            return { type = "class", op = "equals",
-                     value = tonumber(v.value) }
-        end
-
-    elseif tagType == "subclass" then
-        body = "Match items in a specific item subclass (Cloth Armor, Daggers, Potions, etc.)."
-        fields = {
-            { key = "value", type = "select", label = "Subclass",
-              values = SubclassMap(),
-              default = "4:1" },  -- Armor:Cloth
-        }
-        buildTag = function(v)
-            local pair = ParseSubclassKey(v.value)
-            if not pair then return nil end
-            return { type = "subclass", op = "equals", value = pair }
-        end
-
-    elseif tagType == "equipSlot" then
-        body = "Match items that go into a specific equipment slot. Two-handed weapons use their own slot; one-handed and main/off-hand are distinct - pick the slot the item actually shows in its tooltip."
-        fields = {
-            { key = "value", type = "select", label = "Equip Slot",
-              values = ToValuesMap(addon.Categories.EQUIP_SLOT_OPTIONS),
-              default = "INVTYPE_HEAD" },
-        }
-        buildTag = function(v)
-            return { type = "equipSlot", op = "equals",
-                     value = tostring(v.value or "") }
-        end
-
-    elseif tagType == "quality" then
-        body = "Match items by their quality colour. \"At least Rare\" catches Rare, Epic, Legendary, Artifact, and Heirloom."
-        fields = {
-            { key = "op",    type = "select", label = "Operator",
-              values = OPS_MAP.quality, default = ">=" },
-            { key = "value", type = "select", label = "Quality",
-              values = ToValuesMap(addon.Categories.QUALITY_OPTIONS),
-              default = 3 },
-        }
-        buildTag = function(v)
-            return { type = "quality", op = v.op or ">=",
-                     value = tonumber(v.value) or 3 }
-        end
-
-    elseif tagType == "ilvl" then
-        body = "Match items by item level (the displayed number, accounting for upgrades)."
-        fields = {
-            { key = "op",    type = "select", label = "Operator",
-              values = OPS_MAP.ilvl, default = ">=" },
-            { key = "value", type = "input",  label = "Item Level",
-              default = "100" },
-        }
-        buildTag = function(v)
-            local n = tonumber(v.value)
-            if not n then return nil end
-            return { type = "ilvl", op = v.op or ">=", value = n }
-        end
-
-    else
-        return  -- unknown type, abort
-    end
-
-    -- Look up the friendly type label for the popup title.
-    local typeLabel = tagType
-    for _, t in ipairs(addon.Categories.TYPE_OPTIONS) do
-        if t.value == tagType then typeLabel = t.label; break end
-    end
-
-    BazCore:OpenPopup({
-        title  = "Add Match Rule - " .. typeLabel,
-        body   = body,
-        width  = 400,
-        fields = fields,
-        buttons = {
-            { label = "Cancel", style = "default", onClick = function() end },
-            {
-                label   = "Add Rule",
-                style   = "primary",
-                onClick = function(values)
-                    local tag = buildTag(values)
-                    if not tag then
-                        if addon.core then
-                            addon.core:Print("|cffff8800Couldn't parse rule value.|r")
-                        end
-                        return
-                    end
-                    addon.Categories.AddTag(categoryKey, tag)
-                    RefreshAll()
-                end,
-            },
-        },
-    })
-end
-
--- Step 1: pick the tag type. On Next, closes itself and opens the
--- type-specific Step 2 popup.
-OpenAddTagPopup = function(categoryKey)
-    BazCore:OpenPopup({
-        title = "Add Match Rule",
-        body  = "What do you want to filter by? Pick a type, then the next step lets you set the operator and value.",
-        width = 380,
-        fields = {
-            { key = "tagType", type = "select", label = "Filter by",
-              values = ToValuesMap(addon.Categories.TYPE_OPTIONS),
-              default = "name" },
-        },
-        buttons = {
-            { label = "Cancel", style = "default", onClick = function() end },
-            {
-                label   = "Next",
-                style   = "primary",
-                onClick = function(values)
-                    OpenAddTagPopup_PickValue(categoryKey, values.tagType or "name")
-                end,
-            },
-        },
-    })
 end
 
 ---------------------------------------------------------------------------

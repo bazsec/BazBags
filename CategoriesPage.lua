@@ -152,7 +152,7 @@ local function BuildCategoryDetail(item)
             local idx = i  -- capture for closure
             blocks[#blocks+1] = {
                 type  = "execute",
-                name  = "|cffff6666✕|r  " .. addon.Categories.FormatTag(tag),
+                name  = "Remove rule:  " .. addon.Categories.FormatTag(tag),
                 width = "full",
                 func  = function()
                     addon.Categories.RemoveTag(key, idx)

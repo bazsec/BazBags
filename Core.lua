@@ -295,25 +295,32 @@ local function GetSettingsPage()
                 type  = "header",
                 name  = "Money & Currency",
             },
-            goldOnly = {
-                order = 11,
-                type  = "toggle",
-                name  = "Gold Only",
-                desc  = "Hide silver and copper in the gold display next to the search bar - keeps just the gold total. Useful at high gold totals where the silver/copper digits add visual noise.",
-                get   = function() return addon:GetSetting("goldOnly") and true or false end,
-                set   = function(_, val)
-                    addon:SetSetting("goldOnly", val and true or false)
-                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
-                end,
-            },
+            -- showTokens comes first (order 11) so the LayoutEngine's
+            -- strict column alternation puts it in the LEFT card.
+            -- tokenAlignment (order 13) then lands in the LEFT card too
+            -- (col 3 = col 1 again), stacked under showTokens as its
+            -- visual sub-option. goldOnly (order 12) gets its own RIGHT
+            -- card. Result: [Show Currency Tracker + Currency Alignment]
+            -- on the left, [Gold Only] on the right.
             showTokens = {
-                order = 12,
+                order = 11,
                 type  = "toggle",
                 name  = "Show Currency Tracker",
                 desc  = "Show the tracked-currency strip (green box) at the bottom of the panel. The list of currencies is whatever you've marked as \"Show on Backpack\" in Blizzard's Currency UI.",
                 get   = function() return addon:GetSetting("showTokens") ~= false end,
                 set   = function(_, val)
                     addon:SetSetting("showTokens", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+            goldOnly = {
+                order = 12,
+                type  = "toggle",
+                name  = "Gold Only",
+                desc  = "Hide silver and copper in the gold display next to the search bar - keeps just the gold total. Useful at high gold totals where the silver/copper digits add visual noise.",
+                get   = function() return addon:GetSetting("goldOnly") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("goldOnly", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
             },

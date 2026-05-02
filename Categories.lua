@@ -461,8 +461,8 @@ Categories.QUALITY_OPTIONS = {
 
 Categories.TYPE_OPTIONS = {
     { value = "name",      label = "Name"           },
-    { value = "class",     label = "Item Class"     },
-    { value = "subclass",  label = "Item Subclass"  },
+    { value = "class",     label = "Item Type"      },
+    { value = "subclass",  label = "Item Subtype"   },
     { value = "equipSlot", label = "Equip Slot"     },
     { value = "quality",   label = "Quality"        },
     { value = "ilvl",      label = "Item Level"     },
@@ -527,12 +527,12 @@ function Categories.FormatTag(tag)
         return string.format("Name %s |cffffd700\"%s\"|r",
             opLabel, tostring(v or ""))
     elseif t == "class" then
-        return "Item Class is |cffffd700" .. ClassLabel(v) .. "|r"
+        return "Item Type is |cffffd700" .. ClassLabel(v) .. "|r"
     elseif t == "subclass" then
         if type(v) == "table" then
-            return "Item Subclass is |cffffd700" .. SubclassLabel(v[1], v[2]) .. "|r"
+            return "Item Subtype is |cffffd700" .. SubclassLabel(v[1], v[2]) .. "|r"
         end
-        return "Item Subclass is " .. tostring(v)
+        return "Item Subtype is " .. tostring(v)
     elseif t == "equipSlot" then
         return "Equip Slot is |cffffd700" .. EquipSlotLabel(v) .. "|r"
     elseif t == "quality" then

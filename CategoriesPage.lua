@@ -124,6 +124,20 @@ local function BuildCategoryDetail(item)
         text  = "Items that pass these rules drop into this category automatically. Pinned items (further down) override the rules.",
     }
 
+    -- Top row of the section is a side-by-side pair: action button on
+    -- the left card, Match Mode dropdown on the right card. Layout
+    -- engine alternates strictly between left and right columns, so
+    -- the order here matters: Add (col 1) -> Match Mode (col 2) ->
+    -- (defaults only) Reset (col 1, stacks under Add in the left card).
+    blocks[#blocks+1] = {
+        type  = "execute",
+        name  = "Add Match Rule",
+        width = "half",
+        func  = function()
+            if OpenAddTagPopup then OpenAddTagPopup(key) end
+        end,
+    }
+
     blocks[#blocks+1] = {
         type   = "select",
         name   = "Match Mode",
@@ -136,21 +150,6 @@ local function BuildCategoryDetail(item)
         set = function(_, val)
             addon.Categories.SetMatchMode(key, val)
             RefreshAll()
-        end,
-    }
-
-    -- Add Match Rule (and Reset on defaults) goes ABOVE the existing
-    -- rule list. Separating the actions from the list visually so
-    -- the "Add" button doesn't read as just-another-row in the
-    -- Remove-rule stack below it. For default categories the two
-    -- buttons pair side-by-side at half-width; for custom categories
-    -- the Add button takes the full row alone.
-    blocks[#blocks+1] = {
-        type  = "execute",
-        name  = "Add Match Rule",
-        width = isDefault and "half" or "full",
-        func  = function()
-            if OpenAddTagPopup then OpenAddTagPopup(key) end
         end,
     }
 

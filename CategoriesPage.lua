@@ -335,18 +335,27 @@ end
 ---------------------------------------------------------------------------
 
 local function BuildCategoryDetail(item)
-    local key       = item.key
-    local isDefault = item.isDefault and true or false
+    local key         = item.key
+    local isDefault   = item.isDefault and true or false
+    local isProtected = item.isProtected and true or false
 
     local blocks = {}
 
-    blocks[#blocks+1] = {
-        type  = "note",
-        style = "info",
-        text  = isDefault
-            and "You can rename this category, reorder it (use the up/down arrows on the left list), edit its match rules below, or pin extra items as overrides. The category's internal key is locked, so renaming doesn't break anything."
-            or  "Custom category. Add match rules below to auto-include items, or shift+right-click items in the bag to pin them here manually.",
-    }
+    if isProtected then
+        blocks[#blocks+1] = {
+            type  = "note",
+            style = "info",
+            text  = "|cffffd700This is the catch-all category.|r Items that don't match any other category's rules land here, so it can't be deleted, hidden, or have rules added to it. You can still rename it (cosmetic only), reorder it in the bag panel, and pin items to it manually.",
+        }
+    else
+        blocks[#blocks+1] = {
+            type  = "note",
+            style = "info",
+            text  = isDefault
+                and "You can rename this category, reorder it (use the up/down arrows on the left list), edit its match rules below, adjust its Match Priority, or pin extra items as overrides. The category's internal key is locked, so renaming doesn't break anything."
+                or  "Custom category. Add match rules below to auto-include items, adjust Match Priority to control when its rules are evaluated, or shift+right-click items in the bag to pin them here manually.",
+        }
+    end
 
     blocks[#blocks+1] = { type = "h3", name = "Identity" }
 
@@ -365,16 +374,51 @@ local function BuildCategoryDetail(item)
         end,
     }
 
+    -- Hide is gated for protected categories - hiding the catch-all
+    -- would mean items the classifier can't place visibly disappear
+    -- from the bag, which is the exact failure mode the protection
+    -- exists to prevent.
+    if not isProtected then
+        blocks[#blocks+1] = {
+            type = "toggle",
+            name = "Hide from bag panel",
+            desc = "When on, this category's divider and items don't appear in the bag panel. Items still occupy their real bag slots - Hide is a display preference, not a delete. Pin an item to a hidden category (via shift+right-click on the item) to keep it out of view.",
+            get  = function()
+                local entry = addon.Categories.Get(key)
+                return entry and entry.hidden or false
+            end,
+            set  = function(_, val)
+                addon.Categories.SetHidden(key, val)
+                RefreshAll()
+            end,
+        }
+    end
+
+    blocks[#blocks+1] = { type = "divider" }
+
+    -----------------------------------------------------------------
+    -- Match Priority - decoupled from display order so a category
+    -- can sit anywhere in the bag visually but still control when
+    -- its rules are evaluated. Lower number = matches first.
+    -----------------------------------------------------------------
+
+    blocks[#blocks+1] = { type = "h3", name = "Match Priority" }
+
     blocks[#blocks+1] = {
-        type = "toggle",
-        name = "Hide from bag panel",
-        desc = "When on, this category's divider and items don't appear in the bag panel. Items still occupy their real bag slots - Hide is a display preference, not a delete. Pin an item to a hidden category (via shift+right-click on the item) to keep it out of view.",
-        get  = function()
+        type  = "note", style = "tip",
+        text  = "Lower numbers match first. Independent of where this category sits in the bag panel - so a custom \"PoE Equipment\" category can live at the bottom of the bag (priority 5) and still claim items before \"Equipment\" (priority 10) does. Junk ships at priority 5 so grey items always vendor together regardless of bag layout.",
+    }
+
+    blocks[#blocks+1] = {
+        type  = "range",
+        name  = "Priority",
+        min   = 1, max = 999, step = 1,
+        get   = function()
             local entry = addon.Categories.Get(key)
-            return entry and entry.hidden or false
+            return (entry and entry.matchPriority) or (entry and entry.order) or 100
         end,
-        set  = function(_, val)
-            addon.Categories.SetHidden(key, val)
+        set   = function(_, val)
+            addon.Categories.SetMatchPriority(key, val)
             RefreshAll()
         end,
     }
@@ -383,101 +427,99 @@ local function BuildCategoryDetail(item)
 
     -----------------------------------------------------------------
     -- Match Rules - the tag-based auto-classifier for this category.
-    -- Items matching the rules (under the Match Mode) auto-fall into
-    -- this category. Pinned Items below override the rules. Both
-    -- default and custom categories use the same tag system - the
-    -- defaults ship with predefined tags (e.g. Equipment ships with
-    -- "Class is Weapon" + "Class is Armor", matchMode = "any") which
-    -- the user can edit, extend, or reset back to factory.
+    -- Skipped entirely on protected categories (Other) since they
+    -- exist as the catch-all and can't carry rules.
     -----------------------------------------------------------------
 
-    blocks[#blocks+1] = { type = "h3", name = "Match Rules" }
+    if not isProtected then
+        blocks[#blocks+1] = { type = "h3", name = "Match Rules" }
 
-    blocks[#blocks+1] = {
-        type  = "note", style = "info",
-        text  = "Items that pass these rules drop into this category automatically. Pinned items (further down) override the rules.",
-    }
+        blocks[#blocks+1] = {
+            type  = "note", style = "info",
+            text  = "Items that pass these rules drop into this category automatically. Pinned items (further down) override the rules.",
+        }
 
-    -- Top row of the section is a side-by-side pair: action button on
-    -- the left card, Match Mode dropdown on the right card. Layout
-    -- engine alternates strictly between left and right columns, so
-    -- the order here matters: Add (col 1) -> Match Mode (col 2) ->
-    -- (defaults only) Reset (col 1, stacks under Add in the left card).
-    --
-    -- Add Match Rule appends a sensible default tag (Name contains "")
-    -- and refreshes - the new row appears in the list below ready for
-    -- the user to fill in inline via its Type / Op / Value dropdowns.
-    -- No popup needed; the rule editor below IS the input surface.
-    blocks[#blocks+1] = {
-        type  = "execute",
-        name  = "Add Match Rule",
-        width = "half",
-        func  = function()
-            addon.Categories.AddTag(key, addon.Categories.MakeDefaultTag("name"))
-            RefreshAll()
-        end,
-    }
-
-    blocks[#blocks+1] = {
-        type   = "select",
-        name   = "Match Mode",
-        desc   = "All - the item must match every rule (AND). Any - the item lands here as soon as one rule hits (OR).",
-        values = {
-            all = "All  (item must match every rule)",
-            any = "Any  (item matches if it hits any rule)",
-        },
-        get = function() return addon.Categories.GetMatchMode(key) end,
-        set = function(_, val)
-            addon.Categories.SetMatchMode(key, val)
-            RefreshAll()
-        end,
-    }
-
-    if isDefault then
+        -- Top row of the section is a side-by-side pair: action button on
+        -- the left card, Match Mode dropdown on the right card. Layout
+        -- engine alternates strictly between left and right columns, so
+        -- the order here matters: Add (col 1) -> Match Mode (col 2) ->
+        -- (defaults only) Reset (col 1, stacks under Add in the left card).
+        --
+        -- Add Match Rule appends a sensible default tag (Name contains "")
+        -- and refreshes - the new row appears in the list below ready for
+        -- the user to fill in inline via its Type / Op / Value dropdowns.
+        -- No popup needed; the rule editor below IS the input surface.
         blocks[#blocks+1] = {
             type  = "execute",
-            name  = "Reset Rules to Default",
+            name  = "Add Match Rule",
             width = "half",
-            confirm            = true,
-            confirmTitle       = "Reset rules?",
-            confirmText        = "Restore the factory match rules for this category, discarding your edits? Pinned items are not affected.",
-            confirmStyle       = "destructive",
-            confirmAcceptLabel = "Reset",
-            func = function()
-                addon.Categories.ResetTagsToDefault(key)
+            func  = function()
+                addon.Categories.AddTag(key, addon.Categories.MakeDefaultTag("name"))
                 RefreshAll()
             end,
         }
-    end
 
-    -- Header + thin spacer rule between the actions above and the
-    -- Remove-rule list below. The "Current Rules" h4 doubles as the
-    -- empty-state label - its paragraph note swaps out to "No rules
-    -- yet." text when the tag list is empty.
-    blocks[#blocks+1] = { type = "h4", name = "Current Rules" }
-
-    -- Render each existing tag as an inline ruleRow widget so every
-    -- field (type / op / value) is editable in place, no popup needed.
-    -- Empty list shows a hint paragraph instead.
-    local tags = addon.Categories.GetTags(key)
-    if #tags == 0 then
         blocks[#blocks+1] = {
-            type = "paragraph",
-            text = "|cff999999No rules yet. Click " ..
-                   "|cffffd700Add Match Rule|r above to start - the new row will appear here ready to edit.|r",
+            type   = "select",
+            name   = "Match Mode",
+            desc   = "All - the item must match every rule (AND). Any - the item lands here as soon as one rule hits (OR).",
+            values = {
+                all = "All  (item must match every rule)",
+                any = "Any  (item matches if it hits any rule)",
+            },
+            get = function() return addon.Categories.GetMatchMode(key) end,
+            set = function(_, val)
+                addon.Categories.SetMatchMode(key, val)
+                RefreshAll()
+            end,
         }
-    else
-        for i, tag in ipairs(tags) do
+
+        if isDefault then
             blocks[#blocks+1] = {
-                type        = "ruleRow",
-                categoryKey = key,
-                tagIndex    = i,
-                tag         = tag,
+                type  = "execute",
+                name  = "Reset Rules to Default",
+                width = "half",
+                confirm            = true,
+                confirmTitle       = "Reset rules?",
+                confirmText        = "Restore the factory match rules for this category, discarding your edits? Pinned items are not affected.",
+                confirmStyle       = "destructive",
+                confirmAcceptLabel = "Reset",
+                func = function()
+                    addon.Categories.ResetTagsToDefault(key)
+                    RefreshAll()
+                end,
             }
         end
-    end
 
-    blocks[#blocks+1] = { type = "divider" }
+        -- Header + thin spacer rule between the actions above and the
+        -- Remove-rule list below. The "Current Rules" h4 doubles as the
+        -- empty-state label - its paragraph note swaps out to "No rules
+        -- yet." text when the tag list is empty.
+        blocks[#blocks+1] = { type = "h4", name = "Current Rules" }
+
+        -- Render each existing tag as an inline ruleRow widget so every
+        -- field (type / op / value) is editable in place, no popup needed.
+        -- Empty list shows a hint paragraph instead.
+        local tags = addon.Categories.GetTags(key)
+        if #tags == 0 then
+            blocks[#blocks+1] = {
+                type = "paragraph",
+                text = "|cff999999No rules yet. Click " ..
+                       "|cffffd700Add Match Rule|r above to start - the new row will appear here ready to edit.|r",
+            }
+        else
+            for i, tag in ipairs(tags) do
+                blocks[#blocks+1] = {
+                    type        = "ruleRow",
+                    categoryKey = key,
+                    tagIndex    = i,
+                    tag         = tag,
+                }
+            end
+        end
+
+        blocks[#blocks+1] = { type = "divider" }
+    end
 
     blocks[#blocks+1] = { type = "h3", name = "Pinned Items" }
 
@@ -515,26 +557,28 @@ local function BuildCategoryDetail(item)
         end
     end
 
-    blocks[#blocks+1] = { type = "divider" }
+    if not isProtected then
+        blocks[#blocks+1] = { type = "divider" }
 
-    blocks[#blocks+1] = { type = "h3", name = "Delete" }
+        blocks[#blocks+1] = { type = "h3", name = "Delete" }
 
-    blocks[#blocks+1] = {
-        type  = "note",
-        style = isDefault and "warning" or "danger",
-        text  = isDefault
-            and "Deleting a default category lets you reset it back later via Reset to Defaults at the top of the page. Items pinned to this category will fall back to the auto-classifier."
-            or  "Permanently removes this custom category. Items pinned to it will fall back to their default category (or 'Other').",
-    }
+        blocks[#blocks+1] = {
+            type  = "note",
+            style = isDefault and "warning" or "danger",
+            text  = isDefault
+                and "Deleting a default category lets you reset it back later via Reset to Defaults at the top of the page. Items pinned to this category will fall back to the auto-classifier."
+                or  "Permanently removes this custom category. Items pinned to it will fall back to their default category (or 'Other').",
+        }
 
-    blocks[#blocks+1] = {
-        type = "execute",
-        name = "Delete This Category",
-        func = function()
-            addon.Categories.Delete(key)
-            RefreshAll()
-        end,
-    }
+        blocks[#blocks+1] = {
+            type = "execute",
+            name = "Delete This Category",
+            func = function()
+                addon.Categories.Delete(key)
+                RefreshAll()
+            end,
+        }
+    end
 
     return blocks
 end
@@ -552,13 +596,15 @@ if BazCore.QueueForLogin then
             intro    = "Categories group items by what they are. Default categories auto-classify by item type; custom categories collect items you pin to them. Pick a category on the left to rename it, reorder it, pin items, or delete it.",
 
             getItems    = function()
-                -- Decorate hidden categories with a grey "(hidden)"
-                -- suffix in the list so the user can see at a glance
-                -- which ones are excluded from the bag panel without
-                -- having to click into each one.
+                -- Decorate the list with grey suffixes so the user
+                -- can see at a glance which categories are hidden
+                -- from the bag panel and which are protected
+                -- (catch-all only, currently just Other).
                 local cats = addon.Categories.GetAll()
                 for _, c in ipairs(cats) do
-                    if c.hidden then
+                    if c.isProtected then
+                        c.name = (c.name or c.key) .. "  |cff888888(catch-all)|r"
+                    elseif c.hidden then
                         c.name = (c.name or c.key) .. "  |cff888888(hidden)|r"
                     end
                 end

@@ -26,9 +26,16 @@ local Categories = addon.Categories
 -- between (Reset preserves their `order` if Soft mode).
 ---------------------------------------------------------------------------
 
+-- `matchPriority` controls the order Classify evaluates rules; lower
+-- numbers match first. Decoupled from `order` (the bag panel display
+-- position) so a category can sit at the bottom of the bag visually
+-- but still capture items before broader rules above it. Defaults
+-- ship with matchPriority == order so the existing behaviour is
+-- preserved on first install; users who want specificity-over-position
+-- override matchPriority via the detail page.
 Categories.FACTORY_DEFAULTS = {
     {
-        key = "equipment", name = "Equipment", order = 10,
+        key = "equipment", name = "Equipment", order = 10, matchPriority = 10,
         matchMode = "any",
         tags = {
             { type = "class", op = "equals", value = Enum.ItemClass.Weapon },
@@ -36,14 +43,14 @@ Categories.FACTORY_DEFAULTS = {
         },
     },
     {
-        key = "consumables", name = "Consumables", order = 20,
+        key = "consumables", name = "Consumables", order = 20, matchPriority = 20,
         matchMode = "any",
         tags = {
             { type = "class", op = "equals", value = Enum.ItemClass.Consumable },
         },
     },
     {
-        key = "tradegoods", name = "Trade Goods", order = 30,
+        key = "tradegoods", name = "Trade Goods", order = 30, matchPriority = 30,
         matchMode = "any",
         tags = {
             { type = "class", op = "equals", value = Enum.ItemClass.Tradegoods      },
@@ -53,18 +60,19 @@ Categories.FACTORY_DEFAULTS = {
         },
     },
     {
-        key = "questitems", name = "Quest Items", order = 40,
+        key = "questitems", name = "Quest Items", order = 40, matchPriority = 40,
         matchMode = "any",
         tags = {
             { type = "class", op = "equals", value = Enum.ItemClass.Questitem },
         },
     },
     {
-        -- Junk has a quality=0 rule. It sits at display order 50 (low
-        -- in the bag panel) but Classify checks it BEFORE the other
-        -- defaults via a hardcoded shortcut, so a grey weapon still
-        -- goes to Junk rather than Equipment regardless of order.
-        key = "junk", name = "Junk", order = 50,
+        -- Junk sits at display order 50 (low in the bag panel) but
+        -- gets matchPriority 5 - it has to claim grey items before
+        -- Equipment / Consumables / etc. would, otherwise a grey
+        -- weapon lands in Equipment instead of Junk and the user
+        -- can't bulk-vendor greys.
+        key = "junk", name = "Junk", order = 50, matchPriority = 5,
         matchMode = "all",
         tags = {
             { type = "quality", op = "=", value = 0 },
@@ -74,9 +82,18 @@ Categories.FACTORY_DEFAULTS = {
         -- Catch-all. No tags - any item that doesn't match any other
         -- category's tags lands here via the FallbackKey("other") call
         -- at the end of Classify.
-        key = "other", name = "Other", order = 60,
+        --
+        -- isProtected blocks Delete / SetHidden / AddTag / UpdateTag /
+        -- RemoveTag / SetMatchMode / ResetTagsToDefault on this entry,
+        -- because Other is load-bearing - if it's gone or hidden,
+        -- items the classifier can't place visibly disappear from the
+        -- bag panel. Rename and reorder are still allowed (cosmetic).
+        -- EnsureDefaults re-creates Other on every load if it's
+        -- somehow missing, so the catch-all always exists.
+        key = "other", name = "Other", order = 60, matchPriority = 999,
         matchMode = "all",
         tags = {},
+        isProtected = true,
     },
 }
 
@@ -104,13 +121,15 @@ function Categories.EnsureDefaults()
     for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
         if not cats[def.key] then
             -- Brand-new entry: copy the whole factory record (tags,
-            -- matchMode, the works).
+            -- matchMode, matchPriority, isProtected, the works).
             cats[def.key] = {
-                name      = def.name,
-                order     = def.order,
-                isDefault = true,
-                matchMode = def.matchMode,
-                tags      = def.tags and (function()
+                name          = def.name,
+                order         = def.order,
+                matchPriority = def.matchPriority or def.order,
+                isDefault     = true,
+                isProtected   = def.isProtected or nil,
+                matchMode     = def.matchMode,
+                tags          = def.tags and (function()
                     -- Deep-copy tags so mutating SV doesn't poison the
                     -- factory table. Pairs of {type, op, value} are
                     -- shallow-copied; values that are tables (subclass)
@@ -151,6 +170,34 @@ function Categories.EnsureDefaults()
                 end
                 cats[def.key].tags = out
             end
+            -- Backfill isProtected on installs that pre-date the
+            -- protected-categories feature (v068 and earlier). The
+            -- factory record is the source of truth - if a default
+            -- ships protected, force-mark it on existing entries too.
+            if def.isProtected and not cats[def.key].isProtected then
+                cats[def.key].isProtected = true
+                -- Clear any stray rules a previous version might have
+                -- accumulated on a now-protected category, so the
+                -- protection is consistent (a protected catch-all
+                -- with rules would no longer be a catch-all).
+                if def.tags and #def.tags == 0 then
+                    cats[def.key].tags = {}
+                end
+                -- Hidden + protected together would mean the catch-all
+                -- is invisible, which is the exact failure mode the
+                -- protection exists to prevent. Force-unhide.
+                cats[def.key].hidden = false
+            end
+            -- Backfill matchPriority on installs that pre-date the
+            -- decoupled-priority feature. Defaults get their factory
+            -- priority; everything else falls back to its display
+            -- order so behaviour stays identical until the user
+            -- explicitly changes it.
+            if cats[def.key].matchPriority == nil then
+                cats[def.key].matchPriority = def.matchPriority
+                    or cats[def.key].order
+                    or def.order
+            end
         end
     end
     addon:SetSetting("categories", cats)
@@ -169,11 +216,13 @@ function Categories.GetAll()
     local list = {}
     for key, info in pairs(cats) do
         list[#list + 1] = {
-            key       = key,
-            name      = info.name or key,
-            order     = info.order or 100,
-            isDefault = info.isDefault or false,
-            hidden    = info.hidden  or false,
+            key           = key,
+            name          = info.name or key,
+            order         = info.order or 100,
+            matchPriority = info.matchPriority or info.order or 100,
+            isDefault     = info.isDefault or false,
+            isProtected   = info.isProtected or false,
+            hidden        = info.hidden  or false,
         }
     end
     table.sort(list, function(a, b)
@@ -183,9 +232,36 @@ function Categories.GetAll()
     return list
 end
 
+-- Same data as GetAll() but sorted by matchPriority for the classifier.
+-- Display order is independent: the bag panel renders by `order`, but
+-- Classify walks by matchPriority so a category sitting low in the bag
+-- can still claim items before a higher-displayed category.
+function Categories.GetByMatchPriority()
+    local list = Categories.GetAll()
+    -- Stable secondary sort on display order then key, so equal
+    -- priorities tie-break predictably.
+    table.sort(list, function(a, b)
+        if a.matchPriority ~= b.matchPriority then
+            return a.matchPriority < b.matchPriority
+        end
+        if a.order ~= b.order then return a.order < b.order end
+        return a.key < b.key
+    end)
+    return list
+end
+
 function Categories.Get(key)
     local cats = addon:GetSetting("categories") or {}
     return cats[key]
+end
+
+-- Protected categories (currently just "Other") refuse mutating ops
+-- that would make them disappear or stop being a catch-all: Delete,
+-- SetHidden, and any tag CRUD. Rename + reorder are still allowed
+-- since those are purely cosmetic.
+function Categories.IsProtected(key)
+    local cats = addon:GetSetting("categories") or {}
+    return cats[key] and cats[key].isProtected and true or false
 end
 
 ---------------------------------------------------------------------------
@@ -204,6 +280,20 @@ function Categories.Reorder(key, newOrder)
     local cats = addon:GetSetting("categories") or {}
     if not cats[key] then return end
     cats[key].order = newOrder
+    addon:SetSetting("categories", cats)
+end
+
+-- Match Priority controls when Classify evaluates this category's
+-- rules against an item. Lower numbers match first. Decoupled from
+-- display `order` so a category can sit anywhere in the bag visually
+-- but still capture items before broader-rule categories.
+function Categories.SetMatchPriority(key, priority)
+    if not key then return end
+    local n = tonumber(priority)
+    if not n then return end
+    local cats = addon:GetSetting("categories") or {}
+    if not cats[key] then return end
+    cats[key].matchPriority = n
     addon:SetSetting("categories", cats)
 end
 
@@ -263,6 +353,7 @@ end
 function Categories.SetHidden(key, hidden)
     local cats = addon:GetSetting("categories") or {}
     if not cats[key] then return end
+    if cats[key].isProtected then return end  -- catch-all must stay visible
     cats[key].hidden = hidden and true or false
     addon:SetSetting("categories", cats)
 end
@@ -287,9 +378,17 @@ function Categories.Create(name)
         key = "custom_" .. n
     until not cats[key]
 
+    -- Custom categories get matchPriority = order on creation, so
+    -- the new category sits at the end of both the bag display AND
+    -- the match-evaluation chain. Users who want their custom rule
+    -- to outrank a broader default rule can lower matchPriority via
+    -- the detail page without having to also move the category up
+    -- in the bag panel.
+    local newOrder = maxOrder + 10
     cats[key] = {
-        name  = name,
-        order = maxOrder + 10,
+        name          = name,
+        order         = newOrder,
+        matchPriority = newOrder,
     }
     addon:SetSetting("categories", cats)
     return key
@@ -301,6 +400,7 @@ end
 function Categories.Delete(key)
     local cats = addon:GetSetting("categories") or {}
     if not cats[key] then return end
+    if cats[key].isProtected then return end  -- catch-all is undeletable
     cats[key] = nil
     addon:SetSetting("categories", cats)
 
@@ -662,7 +762,7 @@ function Categories.AddTag(key, tag)
     if not key or not tag then return end
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]
-    if not cat then return end
+    if not cat or cat.isProtected then return end
     cat.tags = cat.tags or {}
     cat.tags[#cat.tags + 1] = tag
     addon:SetSetting("categories", cats)
@@ -671,7 +771,7 @@ end
 function Categories.RemoveTag(key, index)
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]
-    if not cat or not cat.tags then return end
+    if not cat or cat.isProtected or not cat.tags then return end
     table.remove(cat.tags, index)
     addon:SetSetting("categories", cats)
 end
@@ -684,7 +784,7 @@ function Categories.UpdateTag(key, index, tag)
     if not key or not index or not tag then return end
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]
-    if not cat or not cat.tags or not cat.tags[index] then return end
+    if not cat or cat.isProtected or not cat.tags or not cat.tags[index] then return end
     cat.tags[index] = tag
     addon:SetSetting("categories", cats)
 end
@@ -721,17 +821,18 @@ function Categories.SetMatchMode(key, mode)
     if mode ~= "all" and mode ~= "any" then return end
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]
-    if not cat then return end
+    if not cat or cat.isProtected then return end
     cat.matchMode = mode
     addon:SetSetting("categories", cats)
 end
 
 -- Restore the factory tags + matchMode for a default category. No-op
--- on custom categories (they have no factory state to restore).
+-- on custom categories (they have no factory state to restore) or
+-- protected categories (they're locked).
 function Categories.ResetTagsToDefault(key)
     local cats = addon:GetSetting("categories") or {}
     local cat  = cats[key]
-    if not cat or not cat.isDefault then return end
+    if not cat or not cat.isDefault or cat.isProtected then return end
     for _, def in ipairs(Categories.FACTORY_DEFAULTS) do
         if def.key == key then
             cat.matchMode = def.matchMode
@@ -818,24 +919,14 @@ function Categories.Classify(itemID, quality, classID)
         -- Pin points at a category that no longer exists; drop to auto.
     end
 
-    -- 2. Junk shortcut: quality=0 always goes to Junk (if it still
-    -- exists), regardless of category display order. This preserves
-    -- the original behaviour where a grey weapon lands in Junk
-    -- rather than Equipment - users typically batch-vendor greys
-    -- together, so the quality flag wins over the class flag for
-    -- low-quality items. If the user has deleted the Junk category
-    -- or it has no quality=0 tag any more, fall through to normal
-    -- tag-based matching.
-    if quality == 0 then
-        local cats = addon:GetSetting("categories") or {}
-        if cats.junk then return "junk" end
-    end
-
-    -- 3. Tag-based matching for ALL categories (default + custom).
-    -- Walk in display order; first category whose tags match wins.
-    -- Categories with no tags (e.g. "Other" by design) are skipped
-    -- so they only ever match via the catch-all fallback below.
-    local list = Categories.GetAll()
+    -- 2. Tag-based matching for ALL categories (default + custom).
+    -- Walk by matchPriority ASC (NOT display order); first category
+    -- whose tags match wins. Junk's factory matchPriority is 5 so a
+    -- grey weapon lands in Junk before Equipment (priority 10) gets
+    -- a look, even though Junk's display order is 50 (low in the
+    -- bag panel). Categories with no tags (e.g. "Other" by design)
+    -- are skipped so they only ever match via the catch-all below.
+    local list = Categories.GetByMatchPriority()
     for _, entry in ipairs(list) do
         local cats = addon:GetSetting("categories") or {}
         local cat  = cats[entry.key]
@@ -846,7 +937,7 @@ function Categories.Classify(itemID, quality, classID)
         end
     end
 
-    -- 4. Catch-all: nothing claimed it. Land in "other" if it still
+    -- 3. Catch-all: nothing claimed it. Land in "other" if it still
     -- exists, otherwise the lowest-ordered surviving category.
     return FallbackKey("other")
 end

@@ -192,18 +192,6 @@ local function GetSettingsPage()
                 end,
                 disabled = function() return addon:GetSetting("bagMode") == "categories" end,
             },
-            perBagSections = {
-                order = 3.5,
-                type  = "toggle",
-                name  = "Separate Each Bag",
-                desc  = "Bags-mode only. When on (default), renders one thin-divider section per equipped bag - Backpack, Bag 1 (BagName), Bag 2 (BagName), ..., Reagent Bag - using the same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all equippable bag slots merge into one Bags section plus a Reagents section (Blizzard's combined-bag style).",
-                get   = function() return addon:GetSetting("perBagSections") and true or false end,
-                set   = function(_, val)
-                    addon:SetSetting("perBagSections", val and true or false)
-                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
-                end,
-                disabled = function() return addon:GetSetting("bagMode") == "categories" end,
-            },
             maxRows = {
                 order = 4,
                 type  = "range",
@@ -271,6 +259,18 @@ local function GetSettingsPage()
                     addon:SetSetting("bagMode", val)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
                 end,
+            },
+            perBagSections = {
+                order = 7,
+                type  = "toggle",
+                name  = "Separate Each Bag",
+                desc  = "Bags-mode only. When on (default), renders one thin-divider section per equipped bag - Backpack, Bag 1 (BagName), Bag 2 (BagName), ..., Reagent Bag - using the same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all equippable bag slots merge into one Bags section plus a Reagents section (Blizzard's combined-bag style). Greys out in Categories mode (the setting has no effect there).",
+                get   = function() return addon:GetSetting("perBagSections") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("perBagSections", val and true or false)
+                    if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+                disabled = function() return addon:GetSetting("bagMode") == "categories" end,
             },
 
             titleHeader = {

@@ -40,19 +40,6 @@ local function ItemDisplayName(itemID)
     return "Item " .. itemID
 end
 
--- Best-effort itemID extraction from either an item link or a raw
--- numeric/string ID. Lets the user shift-click an item link from
--- chat/tooltip into the input box and have it resolve correctly.
-local function ParseItemID(text)
-    if not text or text == "" then return nil end
-    local id = tonumber(text)
-    if id then return id end
-    -- Item link pattern: |Hitem:12345:...
-    local linkID = text:match("|Hitem:(%d+):")
-    if linkID then return tonumber(linkID) end
-    return nil
-end
-
 -- Refresh the bag panel + the settings page. Called after every CRUD
 -- op so the user sees their change immediately in both surfaces.
 local function RefreshAll()
@@ -134,22 +121,17 @@ local function BuildCategoryDetail(item)
 
     blocks[#blocks+1] = { type = "h3", name = "Pinned Items" }
 
+    -- This section is a VIEW + UNPIN surface. Adding pins lives in the
+    -- bag UI itself (Categorize Mode + the shift+right-click context
+    -- menu) where it's faster and more visual - the settings page used
+    -- to also have a "type or paste an item ID" input box, but it was
+    -- a redundant text-only fallback nobody reached for when the bag
+    -- UI was right there. Kept here: the list of currently-pinned
+    -- items with one-click unpin buttons, useful for auditing pins
+    -- without having to find the item in your bag.
     blocks[#blocks+1] = {
         type  = "note", style = "tip",
-        text  = "Shift-click an item link in chat into the input box below to pin it here. Pinned items override the auto-classifier and always appear in this category.",
-    }
-
-    blocks[#blocks+1] = {
-        type = "input",
-        name = "Pin Item ID or Link",
-        desc = "Type or paste an item ID, or shift-click an item link from chat / your bag / a tooltip.",
-        get  = function() return "" end,
-        set  = function(_, val)
-            local id = ParseItemID(val)
-            if not id then return end
-            addon.Categories.AddItem(id, key)
-            RefreshAll()
-        end,
+        text  = "To pin items into this category, use |cffffd700Categorize Mode|r in the bag panel (middle-click the portrait, then drop items onto the gold |cffffd700+|r slot at the end of this category's row), or |cffffd700shift+right-click|r any bag item and pick this category from the menu. Pinned items override the auto-classifier and always appear in this category. Unpin them from the list below.",
     }
 
     -- One execute button per pinned item - clicking unpins it.

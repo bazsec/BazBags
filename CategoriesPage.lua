@@ -439,26 +439,17 @@ local function BuildCategoryDetail(item)
             text  = "Items that pass these rules drop into this category automatically. Pinned items (further down) override the rules.",
         }
 
-        -- Top row of the section is a side-by-side pair: action button on
-        -- the left card, Match Mode dropdown on the right card. Layout
-        -- engine alternates strictly between left and right columns, so
-        -- the order here matters: Add (col 1) -> Match Mode (col 2) ->
-        -- (defaults only) Reset (col 1, stacks under Add in the left card).
+        -- Top row of the section is a side-by-side pair: Match Mode
+        -- dropdown on the left card, action button on the right card.
+        -- Layout engine alternates strictly between left and right
+        -- columns, so the order here matters: Match Mode (col 1) ->
+        -- Add (col 2) -> (defaults only) Reset (col 1, stacks under
+        -- Match Mode in the left card).
         --
         -- Add Match Rule appends a sensible default tag (Name contains "")
         -- and refreshes - the new row appears in the list below ready for
         -- the user to fill in inline via its Type / Op / Value dropdowns.
         -- No popup needed; the rule editor below IS the input surface.
-        blocks[#blocks+1] = {
-            type  = "execute",
-            name  = "Add Match Rule",
-            width = "half",
-            func  = function()
-                addon.Categories.AddTag(key, addon.Categories.MakeDefaultTag("name"))
-                RefreshAll()
-            end,
-        }
-
         blocks[#blocks+1] = {
             type   = "select",
             name   = "Match Mode",
@@ -470,6 +461,16 @@ local function BuildCategoryDetail(item)
             get = function() return addon.Categories.GetMatchMode(key) end,
             set = function(_, val)
                 addon.Categories.SetMatchMode(key, val)
+                RefreshAll()
+            end,
+        }
+
+        blocks[#blocks+1] = {
+            type  = "execute",
+            name  = "Add Match Rule",
+            width = "half",
+            func  = function()
+                addon.Categories.AddTag(key, addon.Categories.MakeDefaultTag("name"))
                 RefreshAll()
             end,
         }
@@ -521,39 +522,45 @@ local function BuildCategoryDetail(item)
         blocks[#blocks+1] = { type = "divider" }
     end
 
-    blocks[#blocks+1] = { type = "h3", name = "Pinned Items" }
+    -- Pinned Items is hidden on protected (catch-all) categories.
+    -- Pinning an item to "Other" is meaningless - Other catches
+    -- everything by default already, so a manual pin to it would
+    -- be a redundant override that adds no information.
+    if not isProtected then
+        blocks[#blocks+1] = { type = "h3", name = "Pinned Items" }
 
-    -- This section is a VIEW + UNPIN surface. Adding pins lives in the
-    -- bag UI itself (Categorize Mode + the shift+right-click context
-    -- menu) where it's faster and more visual - the settings page used
-    -- to also have a "type or paste an item ID" input box, but it was
-    -- a redundant text-only fallback nobody reached for when the bag
-    -- UI was right there. Kept here: the list of currently-pinned
-    -- items with one-click unpin buttons, useful for auditing pins
-    -- without having to find the item in your bag.
-    blocks[#blocks+1] = {
-        type  = "note", style = "tip",
-        text  = "To pin items into this category, use |cffffd700Categorize Mode|r in the bag panel (middle-click the portrait, then drop items onto the gold |cffffd700+|r slot at the end of this category's row), or |cffffd700shift+right-click|r any bag item and pick this category from the menu. Pinned items override the auto-classifier and always appear in this category. Unpin them from the list below.",
-    }
-
-    -- One execute button per pinned item - clicking unpins it.
-    local pins = addon.Categories.GetPinnedItems(key)
-    if #pins == 0 then
+        -- This section is a VIEW + UNPIN surface. Adding pins lives in the
+        -- bag UI itself (Categorize Mode + the shift+right-click context
+        -- menu) where it's faster and more visual - the settings page used
+        -- to also have a "type or paste an item ID" input box, but it was
+        -- a redundant text-only fallback nobody reached for when the bag
+        -- UI was right there. Kept here: the list of currently-pinned
+        -- items with one-click unpin buttons, useful for auditing pins
+        -- without having to find the item in your bag.
         blocks[#blocks+1] = {
-            type = "paragraph",
-            text = "|cff999999No items pinned yet.|r",
+            type  = "note", style = "tip",
+            text  = "To pin items into this category, use |cffffd700Categorize Mode|r in the bag panel (middle-click the portrait, then drop items onto the gold |cffffd700+|r slot at the end of this category's row), or |cffffd700shift+right-click|r any bag item and pick this category from the menu. Pinned items override the auto-classifier and always appear in this category. Unpin them from the list below.",
         }
-    else
-        for _, itemID in ipairs(pins) do
+
+        -- One execute button per pinned item - clicking unpins it.
+        local pins = addon.Categories.GetPinnedItems(key)
+        if #pins == 0 then
             blocks[#blocks+1] = {
-                type  = "execute",
-                name  = "Remove " .. ItemDisplayName(itemID),
-                width = "full",
-                func  = function()
-                    addon.Categories.RemoveItem(itemID)
-                    RefreshAll()
-                end,
+                type = "paragraph",
+                text = "|cff999999No items pinned yet.|r",
             }
+        else
+            for _, itemID in ipairs(pins) do
+                blocks[#blocks+1] = {
+                    type  = "execute",
+                    name  = "Remove " .. ItemDisplayName(itemID),
+                    width = "full",
+                    func  = function()
+                        addon.Categories.RemoveItem(itemID)
+                        RefreshAll()
+                    end,
+                }
+            end
         end
     end
 

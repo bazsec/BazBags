@@ -566,7 +566,32 @@ Categories.TYPE_OPTIONS = {
     { value = "equipSlot", label = "Equip Slot"     },
     { value = "quality",   label = "Quality"        },
     { value = "ilvl",      label = "Item Level"     },
+    { value = "expac",     label = "Expansion"      },
 }
+
+-- Built lazily from Blizzard's EXPANSION_NAME{n} globals so we pick
+-- up future expansions automatically. Stops on the first gap.
+Categories.EXPAC_OPTIONS = (function()
+    local out = {}
+    for i = 0, 30 do
+        local name = _G["EXPANSION_NAME" .. i]
+        if type(name) ~= "string" or name == "" then break end
+        out[#out+1] = { value = i, label = name }
+    end
+    return out
+end)()
+
+-- Best guess at the latest expansion ID for default-tag seeding.
+local function CurrentExpacID()
+    if GetExpansionLevel then
+        local lvl = GetExpansionLevel()
+        if type(lvl) == "number" then return lvl end
+    end
+    if #Categories.EXPAC_OPTIONS > 0 then
+        return Categories.EXPAC_OPTIONS[#Categories.EXPAC_OPTIONS].value
+    end
+    return 0
+end
 
 -- Valid operators per tag type. Used by the popup to filter the op
 -- dropdown to only those that make sense for the chosen type.
@@ -583,6 +608,9 @@ Categories.OPS_FOR_TYPE = {
     ilvl      = { { value = ">=", label = "at least" },
                   { value = "=",  label = "exactly"  },
                   { value = "<=", label = "at most"  } },
+    expac     = { { value = "=",  label = "is"               },
+                  { value = ">=", label = "is at least"      },
+                  { value = "<=", label = "is at most"       } },
 }
 
 -- Lookup helpers for friendly label rendering.
@@ -612,6 +640,13 @@ local function QualityLabel(q)
         if o.value == q then return o.label end
     end
     return tostring(q)
+end
+
+local function ExpacLabel(id)
+    for _, o in ipairs(Categories.EXPAC_OPTIONS) do
+        if o.value == id then return o.label end
+    end
+    return "Expansion " .. tostring(id)
 end
 
 -- Pretty-print a tag for display in the rules list. Format reads as
@@ -647,6 +682,12 @@ function Categories.FormatTag(tag)
             or "exactly"
         return string.format("Item Level %s |cffffd700%d|r",
             opLabel, tonumber(v) or 0)
+    elseif t == "expac" then
+        local opLabel = (op == ">=" and "is at least")
+            or (op == "<=" and "is at most")
+            or "is"
+        return string.format("Expansion %s |cffffd700%s|r",
+            opLabel, ExpacLabel(tonumber(v) or 0))
     end
     return "(unknown rule type: " .. tostring(t) .. ")"
 end
@@ -718,6 +759,14 @@ local function MatchTag(tag, meta)
         if op == ">=" then return i >= n end
         if op == "=" then return i == n end
         if op == "<=" then return i <= n end
+        return false
+    elseif t == "expac" then
+        local e = meta.expacID
+        if e == nil then return false end
+        local n = tonumber(v) or 0
+        if op == ">=" then return e >= n end
+        if op == "=" then return e == n end
+        if op == "<=" then return e <= n end
         return false
     end
     return false
@@ -807,6 +856,8 @@ function Categories.MakeDefaultTag(tagType)
         return { type = "quality", op = ">=", value = 3 }  -- Rare+
     elseif tagType == "ilvl" then
         return { type = "ilvl", op = ">=", value = 100 }
+    elseif tagType == "expac" then
+        return { type = "expac", op = "=", value = CurrentExpacID() }
     end
     return { type = "name", op = "contains", value = "" }
 end

@@ -114,6 +114,13 @@ local function QualityValueLabel(q)
     return tostring(q)
 end
 
+local function ExpacValueLabel(id)
+    for _, o in ipairs(addon.Categories.EXPAC_OPTIONS) do
+        if o.value == id then return o.label end
+    end
+    return tostring(id)
+end
+
 -- Encode/decode subclass composite value for the dropdown. Storage
 -- is a {classID, subclassID} table; the dropdown radio's "value"
 -- needs to be a single primitive so we use "class:subclass" strings
@@ -183,6 +190,8 @@ local function BuildValueControl(frame, tag, key, idx, leftPx, rightInsetPx)
         label = EquipSlotValueLabel(tag.value)
     elseif tag.type == "quality" then
         label = QualityValueLabel(tonumber(tag.value))
+    elseif tag.type == "expac" then
+        label = ExpacValueLabel(tonumber(tag.value))
     end
     btn:SetDefaultText(label or "?")
 
@@ -230,6 +239,16 @@ local function BuildValueControl(frame, tag, key, idx, leftPx, rightInsetPx)
                     function()
                         addon.Categories.UpdateTag(key, idx,
                             { type = "quality", op = tag.op, value = o.value })
+                        RefreshAll()
+                    end)
+            end
+        elseif tag.type == "expac" then
+            for _, o in ipairs(addon.Categories.EXPAC_OPTIONS) do
+                root:CreateRadio(o.label,
+                    function() return tonumber(tag.value) == o.value end,
+                    function()
+                        addon.Categories.UpdateTag(key, idx,
+                            { type = "expac", op = tag.op, value = o.value })
                         RefreshAll()
                     end)
             end

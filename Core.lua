@@ -55,6 +55,11 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         -- than the built-in "tradegoods".
         itemCategories = {},
 
+        -- Tooltip augmentation
+        showExpacInTooltip = false, -- when on, appends an "Expansion" line to
+                                    -- item tooltips using the expansionID
+                                    -- returned by C_Item.GetItemInfo
+
         -- Money & Currency
         showTokens      = true,   -- tracked-currency (green) row at the bottom
         goldOnly        = false,  -- hide silver + copper in the money display
@@ -287,6 +292,22 @@ local function GetSettingsPage()
                 set   = function(_, val)
                     addon:SetSetting("useDefaultTitle", val and true or false)
                     if addon.Bag and addon.Bag.Refresh then addon.Bag:Refresh() end
+                end,
+            },
+
+            tooltipHeader = {
+                order = 9.5,
+                type  = "header",
+                name  = "Tooltip",
+            },
+            showExpacInTooltip = {
+                order = 9.6,
+                type  = "toggle",
+                name  = "Show Expansion",
+                desc  = "Append an \"Expansion\" line to item tooltips, showing which expansion the item was added in (from Blizzard's C_Item.GetItemInfo). Applies everywhere item tooltips appear - bags, character pane, merchant, auction house.",
+                get   = function() return addon:GetSetting("showExpacInTooltip") and true or false end,
+                set   = function(_, val)
+                    addon:SetSetting("showExpacInTooltip", val and true or false)
                 end,
             },
 

@@ -139,29 +139,12 @@ local function BuildCategoryDetail(item)
         end,
     }
 
-    -- Render each existing tag as a full-width "Remove rule: ..." button.
-    -- Same idiom the Pinned Items section uses below for consistency.
-    local tags = addon.Categories.GetTags(key)
-    if #tags == 0 then
-        blocks[#blocks+1] = {
-            type = "paragraph",
-            text = "|cff999999No rules yet. Items will only land here via pins (or the catch-all if this is the Other category).|r",
-        }
-    else
-        for i, tag in ipairs(tags) do
-            local idx = i  -- capture for closure
-            blocks[#blocks+1] = {
-                type  = "execute",
-                name  = "Remove rule:  " .. addon.Categories.FormatTag(tag),
-                width = "full",
-                func  = function()
-                    addon.Categories.RemoveTag(key, idx)
-                    RefreshAll()
-                end,
-            }
-        end
-    end
-
+    -- Add Match Rule (and Reset on defaults) goes ABOVE the existing
+    -- rule list. Separating the actions from the list visually so
+    -- the "Add" button doesn't read as just-another-row in the
+    -- Remove-rule stack below it. For default categories the two
+    -- buttons pair side-by-side at half-width; for custom categories
+    -- the Add button takes the full row alone.
     blocks[#blocks+1] = {
         type  = "execute",
         name  = "Add Match Rule",
@@ -186,6 +169,35 @@ local function BuildCategoryDetail(item)
                 RefreshAll()
             end,
         }
+    end
+
+    -- Header + thin spacer rule between the actions above and the
+    -- Remove-rule list below. The "Current Rules" h4 doubles as the
+    -- empty-state label - its paragraph note swaps out to "No rules
+    -- yet." text when the tag list is empty.
+    blocks[#blocks+1] = { type = "h4", name = "Current Rules" }
+
+    -- Render each existing tag as a full-width "Remove rule: ..." button.
+    -- Same idiom the Pinned Items section uses below for consistency.
+    local tags = addon.Categories.GetTags(key)
+    if #tags == 0 then
+        blocks[#blocks+1] = {
+            type = "paragraph",
+            text = "|cff999999No rules yet. Items will only land here via pins (or the catch-all if this is the Other category).|r",
+        }
+    else
+        for i, tag in ipairs(tags) do
+            local idx = i  -- capture for closure
+            blocks[#blocks+1] = {
+                type  = "execute",
+                name  = "Remove rule:  " .. addon.Categories.FormatTag(tag),
+                width = "full",
+                func  = function()
+                    addon.Categories.RemoveTag(key, idx)
+                    RefreshAll()
+                end,
+            }
+        end
     end
 
     blocks[#blocks+1] = { type = "divider" }

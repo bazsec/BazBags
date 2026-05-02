@@ -33,13 +33,14 @@ addon = BazCore:RegisterAddon(ADDON_NAME, {
         --                            each category's grid block
         bagMode = "bags",
 
-        -- Bags-mode sub-option. When false (default), bag mode renders
-        -- two chunky sections - Bags + Reagents - merging all
-        -- equippable bag slots into one grid. When true, render one
-        -- thin-divider section per equipped bag (Backpack, Bag 1,
-        -- Bag 2, ..., Reagent Bag), using the same divider chrome
-        -- Categories mode uses. Categories mode ignores this setting.
-        perBagSections = false,
+        -- Bags-mode sub-option. When true (default), bag mode renders
+        -- one thin-divider section per equipped bag - Backpack, Bag 1
+        -- (BagName), Bag 2 (BagName), ..., Reagent Bag - using the
+        -- same divider chrome Categories mode uses. When false, all
+        -- equippable bag slots merge into a single Bags section + a
+        -- Reagents section (Blizzard's combined-bag style).
+        -- Categories mode ignores this setting.
+        perBagSections = true,
 
         -- Custom categories. Keys are auto-generated at creation time
         -- ("custom1", "custom2", ...). Values are { name, order }. Empty
@@ -195,7 +196,7 @@ local function GetSettingsPage()
                 order = 3.5,
                 type  = "toggle",
                 name  = "Separate Each Bag",
-                desc  = "Bags-mode only. When on, renders one thin-divider section per equipped bag (Backpack, Bag 1, Bag 2, ..., Reagent Bag) - same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all bags merge into one Bags section + a Reagents section (the Blizzard-style default).",
+                desc  = "Bags-mode only. When on (default), renders one thin-divider section per equipped bag - Backpack, Bag 1 (BagName), Bag 2 (BagName), ..., Reagent Bag - using the same divider style Categories mode uses, with the equipped bag's actual name shown next to its slot label. When off, all equippable bag slots merge into one Bags section plus a Reagents section (Blizzard's combined-bag style).",
                 get   = function() return addon:GetSetting("perBagSections") and true or false end,
                 set   = function(_, val)
                     addon:SetSetting("perBagSections", val and true or false)

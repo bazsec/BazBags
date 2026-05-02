@@ -218,21 +218,21 @@ local PER_BAG_ORDER = {
 -- Display label for each bag's divider. Backpack and the reagent bag
 -- get plain labels (they aren't really swappable items in the same
 -- way); equippable bag slots 1-4 show "Bag N" plus the equipped
--- bag's actual name in grey, so a glance tells you which slot holds
--- which bag.
+-- bag's actual name in grey parens, so a glance tells you which slot
+-- holds which bag.
 local function BagDividerLabel(bagID)
     local equippedName = C_Container.GetBagName and C_Container.GetBagName(bagID)
     if bagID == Enum.BagIndex.Backpack then
         return "Backpack"
     elseif bagID == Enum.BagIndex.ReagentBag then
         if equippedName and equippedName ~= "" then
-            return "Reagent Bag  |cff888888[" .. equippedName .. "]|r"
+            return "Reagent Bag |cff888888(" .. equippedName .. ")|r"
         end
         return "Reagent Bag"
     else
         local pos = "Bag " .. tostring(bagID)
         if equippedName and equippedName ~= "" then
-            return pos .. "  |cff888888[" .. equippedName .. "]|r"
+            return pos .. " |cff888888(" .. equippedName .. ")|r"
         end
         return pos
     end

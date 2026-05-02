@@ -57,15 +57,15 @@ Toggle Hide on any category to suppress it entirely from the bag panel. Items st
 
 ### Per-Bag Sections
 
-The "Separate Each Bag" toggle (Bags mode only) renders one thin-divider section per equipped bag - Backpack, Bag 1, Bag 2, ..., Reagent Bag - each labelled with the equipped bag's actual name in grey:
+Bags mode renders one thin-divider section per equipped bag by default - Backpack, Bag 1, Bag 2, ..., Reagent Bag - each labelled with the equipped bag's actual name in grey parens:
 
 ```
 Backpack
-Bag 1 [Wildercloth Bag]
-Bag 2 [Reaver's Reagent Pouch]
+Bag 1 (Wildercloth Bag)
+Bag 2 (Reaver's Reagent Pouch)
 ```
 
-Same divider style Categories mode uses, with click-to-collapse on each.
+Same divider style Categories mode uses, with click-to-collapse on each. Toggle "Separate Each Bag" off in settings if you'd rather see one merged Bags section + a Reagents section (Blizzard's combined-bag style).
 
 ### Categorize Mode
 

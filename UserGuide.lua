@@ -174,8 +174,17 @@ BazCore:RegisterUserGuide("BazBags", {
                               { "|cffffd700Trade Goods|r", "Trade Goods, Recipes, Gems, and Item Enhancements" },
                               { "|cffffd700Quest Items|r", "Items in the Quest Items class" },
                               { "|cffffd700Junk|r",        "Anything with quality |cff9d9d9dPoor|r (grey)" },
-                              { "|cffffd700Other|r",       "Catch-all - anything no other default category claimed" },
+                              { "|cffffd700Other|r",       "Catch-all — anything no other default category claimed" },
                           }},
+                        { type = "h2", text = "Custom rule types" },
+                        { type = "paragraph", text = "Custom categories support several rule types so you can build sub-buckets that the defaults don't cover. Edit a custom category from the Categories settings page → Rules:" },
+                        { type = "list", items = {
+                            "|cffffd700Item Class|r — match the same Blizzard item-class buckets the defaults use",
+                            "|cffffd700Quality|r — match by item quality (Poor, Common, Uncommon, Rare, Epic, Legendary, Artifact)",
+                            "|cffffd700Equip Slot|r — match by inventory slot (Head, Cloak, Trinket, etc.) — useful for separating cosmetic gear or trinket sets",
+                            "|cffffd700Expansion|r — match items added in a specific expansion (Vanilla, TBC, Wrath, ... Midnight). Great for separating legacy gear, transmog farm leftovers, or current-expansion-only sets.",
+                            "|cffffd700Trade Skill / Reagent|r — match crafting reagent classes",
+                        }},
                         { type = "h2", text = "How the classifier picks" },
                         { type = "paragraph", text = "For each item the classifier walks a fixed lookup chain:" },
                         { type = "list", ordered = true, items = {
@@ -290,7 +299,12 @@ BazCore:RegisterUserGuide("BazBags", {
                 }},
                 { type = "note", style = "info", text = "The list of tracked currencies is whatever you've marked |cffffd700Show on Backpack|r in Blizzard's Currency UI (under your Character pane). BazBags removes Blizzard's cap on how many you can watch - track as many as you like and they'll pack into multiple rows automatically." },
                 { type = "h2", text = "Search" },
-                { type = "paragraph", text = "The search box at the top-left of the panel filters every bag at once. Type a partial name, an item type (\"potion\"), a quality (\"epic\"), or any other tooltip-text fragment - items that don't match dim. Clear the box to restore the full view. The search reuses Blizzard's BagSearchBoxTemplate, so it behaves identically to the search box in the default UI." },
+                { type = "paragraph", text = "The search box at the top-left of the panel filters every bag at once. Type a partial name, an item type (\"potion\"), a quality (\"epic\"), or any other tooltip-text fragment — items that don't match dim. Clear the box to restore the full view. The search reuses Blizzard's BagSearchBoxTemplate, so it behaves identically to the search box in the default UI." },
+                { type = "h2", text = "Tooltip extras" },
+                { type = "paragraph", text = "BazBags can append extra information to item tooltips wherever they appear (bags, character pane, merchant, AH, etc.):" },
+                { type = "list", items = {
+                    "|cffffd700Show Expansion in Tooltip|r — adds a line showing which expansion an item was added in (e.g. \"Expansion |cffffd700Midnight|r\"). Helpful for picking out current-expansion gear in a crowded bag.",
+                }},
             },
         },
 

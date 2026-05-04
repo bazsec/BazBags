@@ -2,7 +2,7 @@
 
 # BazBags
 
-[![Part of BazAddons](https://img.shields.io/badge/Part_of-BazAddons-b8924a?labelColor=2a2519)](https://bazaddons.com) ![WoW](https://img.shields.io/badge/WoW-12.0_Midnight-blue) ![License](https://img.shields.io/badge/License-GPL_v2-green) ![Version](https://img.shields.io/github/v/tag/BazAddons/BazBags?label=Version&color=orange&sort=date)
+[![Part of BazAddons](https://img.shields.io/badge/Part_of-BazAddons-b8924a?labelColor=2a2519)](https://bazaddons.com) [![WoW](https://img.shields.io/badge/WoW-12.0_Midnight-blue)](https://worldofwarcraft.blizzard.com/en-us/midnight) ![License](https://img.shields.io/badge/License-GPL_v2-green) ![Version](https://img.shields.io/github/v/tag/BazAddons/BazBags?label=Version&color=orange&sort=date)
 
 A unified bag panel for World of Warcraft. All bags + the reagent bag in one window with two display modes, six auto-classified categories, custom categories, hidden categories, three ways to pin items, and a per-bag separation option.
 

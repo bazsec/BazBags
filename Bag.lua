@@ -270,7 +270,6 @@ local function GetBazBagsSection(ctx)
     if ctx.button and ctx.stackCount and ctx.stackCount > 1 and not ctx.isLocked then
         local bagID, slotID = ctx.bagID, ctx.slotID
         local btn = ctx.button
-        items[#items + 1] = { divider = true }
         items[#items + 1] = {
             label = "Split stack...",
             onClick = function()

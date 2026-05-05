@@ -1,5 +1,22 @@
 # BazBags Changelog
 
+## 074 — Cleaner context menu + split stack on tap
+
+Continuing on the BazCore 116 shared context-menu refactor with a
+handful of polish passes:
+
+- The 8-10 categories that used to fill the menu collapse into a
+  single "Category ▶" entry that opens a flyout submenu on hover
+  (using the new `submenu` shape in BazCore 117).
+- New "Split stack..." entry on stacks > 1. Blizzard's default
+  shift+right-click split-stack trigger is suppressed on BazBags
+  slots so the only path to the dialog is the menu entry, and the
+  StackSplitFrame is bumped to FULLSCREEN_DIALOG strata so the
+  dialog reliably pops on top of the bag panel.
+- The redundant item-link title is removed from the menu - the bag
+  slot's icon sits right next to the menu, you can already see what
+  you're acting on.
+
 ## 073 — Bag-item context menu uses BazCore's shared registry
 
 Shift+right-clicking a bag slot still shows the same category-pin

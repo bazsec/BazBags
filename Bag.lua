@@ -162,6 +162,26 @@ local function GetOrCreateSlotButton(bagID, slotID)
         btn:SetID(slotID)
     end
 
+    -- Suppress Blizzard's default shift+right-click split-stack
+    -- trigger on this slot. The mixin's OnModifiedClick checks
+    -- IsModifiedClick("SPLITSTACK") (which is shift+right-click by
+    -- default) and opens StackSplitFrame at DIALOG strata - i.e.
+    -- *behind* BazBags's own DIALOG-strata panel. Our shift+right-
+    -- click menu offers an explicit "Split stack..." entry instead,
+    -- which opens the same dialog at FULLSCREEN_DIALOG strata so it
+    -- pops on top. Skip the SPLITSTACK branch on our buttons by
+    -- routing the rest of OnModifiedClick through the original mixin
+    -- but bailing on shift+right-click before SPLITSTACK fires.
+    if not btn._bazNoAutoSplit then
+        btn._bazNoAutoSplit = true
+        btn.OnModifiedClick = function(self, mouseBtn)
+            if mouseBtn == "RightButton" and IsShiftKeyDown() then
+                return
+            end
+            ContainerFrameItemButtonMixin.OnModifiedClick(self, mouseBtn)
+        end
+    end
+
     -- Shift+right-click > category context menu. PreClick fires before
     -- the secure action handler (which would normally use the item on
     -- right-click), so we can show our menu without losing the rest of
@@ -203,7 +223,10 @@ local function GetBazBagsSection(ctx)
     if not Categories then return end
     local cats = Categories.GetAll() or {}
 
-    local items = {}
+    -- Build the category submenu items first; they live inside a
+    -- single "Category" parent at the top level so the BazBags section
+    -- isn't 8-10 categories tall on every shift+right-click.
+    local categoryItems = {}
     for _, cat in ipairs(cats) do
         local label = cat.name or cat.key
         if cat.hidden then
@@ -213,7 +236,7 @@ local function GetBazBagsSection(ctx)
             label = "|cffffd700" .. CHECK_GLYPH .. " " .. label .. "|r"
         end
         local capturedKey = cat.key
-        items[#items + 1] = {
+        categoryItems[#categoryItems + 1] = {
             label = label,
             onClick = function()
                 if capturedKey == currentKey then
@@ -226,13 +249,38 @@ local function GetBazBagsSection(ctx)
         }
     end
 
+    local items = {
+        { label = "Category", submenu = categoryItems },
+    }
+
     if currentKey then
-        items[#items + 1] = { divider = true }
         items[#items + 1] = {
             label = "Unpin (auto-classify)",
             onClick = function()
                 Categories.RemoveItem(ctx.itemID)
                 if Bag.Refresh then Bag:Refresh() end
+            end,
+        }
+    end
+
+    -- Split stack entry. BazBags's shift+right-click intercepts
+    -- Blizzard's default split-stack gesture, so we have to expose
+    -- it here. StackSplitFrame normally lives at DIALOG strata; bump
+    -- it above BazBags's own DIALOG-strata panel so it pops on top.
+    if ctx.button and ctx.stackCount and ctx.stackCount > 1 and not ctx.isLocked then
+        local bagID, slotID = ctx.bagID, ctx.slotID
+        local btn = ctx.button
+        items[#items + 1] = { divider = true }
+        items[#items + 1] = {
+            label = "Split stack...",
+            onClick = function()
+                if not StackSplitFrame then return end
+                btn.SplitStack = function(_, amount)
+                    C_Container.SplitContainerItem(bagID, slotID, amount)
+                end
+                StackSplitFrame:SetFrameStrata("FULLSCREEN_DIALOG")
+                StackSplitFrame:OpenStackSplitFrame(
+                    ctx.stackCount, btn, "BOTTOMRIGHT", "TOPRIGHT")
             end,
         }
     end
@@ -249,13 +297,17 @@ function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
     if not info or not info.itemID then return end  -- empty slot
 
     if BazCore.OpenContextMenu then
+        -- No title intentionally - the bag slot's icon is right next
+        -- to the menu, so an item-link title would just echo what the
+        -- user can already see.
         BazCore:OpenContextMenu("bag-item", anchor, {
+            button   = anchor,
             bagID    = bagID,
             slotID   = slotID,
             itemID   = info.itemID,
             itemLink = info.hyperlink,
-        }, {
-            title = info.hyperlink or ("Item " .. info.itemID),
+            stackCount = info.stackCount,
+            isLocked   = info.isLocked,
         })
     end
 end

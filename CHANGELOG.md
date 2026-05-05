@@ -1,5 +1,13 @@
 # BazBags Changelog
 
+## 073 — Bag-item context menu uses BazCore's shared registry
+
+Shift+right-clicking a bag slot still shows the same category-pin
+menu, but it's now built via BazCore's `OpenContextMenu("bag-item",
+...)`. Other addons that register a section under the same scope
+(BazTooltipEditor's "Inspect this tooltip" entry being the first
+example) appear in the menu automatically alongside the categories.
+
 ## 072 — User guide refresh
 
 The in-game User Manual now documents the full set of custom-category

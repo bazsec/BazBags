@@ -189,58 +189,75 @@ end
 -- Small green check icon used to mark the active pin in the menu.
 local CHECK_GLYPH = "|TInterface\\RaidFrame\\ReadyCheck-Ready:14:14:0:0|t"
 
-function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
-    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
-
-    local info = C_Container.GetContainerItemInfo(bagID, slotID)
-    if not info or not info.itemID then return end  -- empty slot
-
-    local itemID = info.itemID
-    local link   = info.hyperlink
+-- Register BazBags's contribution to the shared "bag-item" context-menu
+-- scope. Other addons can register their own sections against the same
+-- scope (BazTooltipEditor's "Inspect tooltip", e.g.) and they all show
+-- up in one menu when the user shift+right-clicks a bag slot.
+local function GetBazBagsSection(ctx)
+    if not ctx or not ctx.itemID then return end
 
     local pins       = addon:GetSetting("itemCategories") or {}
-    local currentKey = pins[itemID]
+    local currentKey = pins[ctx.itemID]
 
     local Categories = addon.Categories
     if not Categories then return end
     local cats = Categories.GetAll() or {}
 
-    MenuUtil.CreateContextMenu(anchor, function(_, root)
-        root:CreateTitle(link or ("Item " .. itemID))
-
-        for _, cat in ipairs(cats) do
-            local label = cat.name or cat.key
-            -- Hidden categories still appear in the menu - pinning to
-            -- a hidden category is a deliberate "stash this item out
-            -- of view" action - but get a grey suffix so the user
-            -- knows what they're picking.
-            if cat.hidden then
-                label = label .. "  |cff888888(hidden)|r"
-            end
-            -- Mark the current pin with a check + gold colour so the
-            -- user immediately sees where the item lives.
-            if cat.key == currentKey then
-                label = "|cffffd700" .. CHECK_GLYPH .. " " .. label .. "|r"
-            end
-            local capturedKey = cat.key
-            root:CreateButton(label, function()
+    local items = {}
+    for _, cat in ipairs(cats) do
+        local label = cat.name or cat.key
+        if cat.hidden then
+            label = label .. "  |cff888888(hidden)|r"
+        end
+        if cat.key == currentKey then
+            label = "|cffffd700" .. CHECK_GLYPH .. " " .. label .. "|r"
+        end
+        local capturedKey = cat.key
+        items[#items + 1] = {
+            label = label,
+            onClick = function()
                 if capturedKey == currentKey then
-                    Categories.RemoveItem(itemID)  -- toggle off
+                    Categories.RemoveItem(ctx.itemID)
                 else
-                    Categories.AddItem(itemID, capturedKey)
+                    Categories.AddItem(ctx.itemID, capturedKey)
                 end
                 if Bag.Refresh then Bag:Refresh() end
-            end)
-        end
+            end,
+        }
+    end
 
-        if currentKey then
-            root:CreateDivider()
-            root:CreateButton("Unpin (auto-classify)", function()
-                Categories.RemoveItem(itemID)
+    if currentKey then
+        items[#items + 1] = { divider = true }
+        items[#items + 1] = {
+            label = "Unpin (auto-classify)",
+            onClick = function()
+                Categories.RemoveItem(ctx.itemID)
                 if Bag.Refresh then Bag:Refresh() end
-            end)
-        end
-    end)
+            end,
+        }
+    end
+
+    return items
+end
+
+if BazCore.RegisterContextMenuSection then
+    BazCore:RegisterContextMenuSection("bag-item", "BazBags", GetBazBagsSection)
+end
+
+function Bag:ShowCategoryMenuForSlot(anchor, bagID, slotID)
+    local info = C_Container.GetContainerItemInfo(bagID, slotID)
+    if not info or not info.itemID then return end  -- empty slot
+
+    if BazCore.OpenContextMenu then
+        BazCore:OpenContextMenu("bag-item", anchor, {
+            bagID    = bagID,
+            slotID   = slotID,
+            itemID   = info.itemID,
+            itemLink = info.hyperlink,
+        }, {
+            title = info.hyperlink or ("Item " .. info.itemID),
+        })
+    end
 end
 
 ---------------------------------------------------------------------------
